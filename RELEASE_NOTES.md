@@ -4,7 +4,7 @@ Welcome to the official **`v1.0.0`** release of **Dice Chaos Connections** by **
 
 **Dice Chaos Connections** is an offline-first TTRPG campaign mind-map, detective conspiracy board, and spoiler-safe **2nd-Screen Live Player Display** built for Dungeon Masters, Game Masters, worldbuilders, and tabletop groups rolling real **[Dice Chaos](https://dicechaos.com)** polyhedral dice around the table.
 
-> **Companion App:** Pair **Dice Chaos Connections** at the game table with **[Dice Chaos Display](https://github.com/dicechaos/DiceChaosDisplay)**—our zero-lag 4K/8K battlemap studio, looping video scene player, feathered Fog of War, and true 1-inch (`25.4 mm`) physical miniature TV calibrator!
+> **Part of the Dice Chaos Tabletop Suite:** Pair **Dice Chaos Connections** with **[Dice Chaos Display](https://github.com/dicechaos/DiceChaosDisplay)** (offline 4K/8K battlemap studio, looping video scene player, feathered Fog of War & true 1-inch physical miniature TV calibrator) and **[Dice Chaos Masters](https://github.com/dicechaos/DiceChaosMasters)** (free offline parametric 3D polyhedral dice master, matched insert blank & MSLA resin support CAD studio)!
 
 ---
 
@@ -57,4 +57,5 @@ a3b097d1b115168b96f5c7e796d4a8d6c9b619d84e8452f591389431bd113f07  dice-chaos-con
 Running **Dice Chaos Connections** with your campaign group? Let us know how it goes!
 - **Report bugs / request features:** [GitHub Issues](https://github.com/dicechaos/DiceChaosConnections/issues)
 - **Companion 4K/8K TV battlemap studio:** [Dice Chaos Display](https://github.com/dicechaos/DiceChaosDisplay)
+- **Companion 3D dice master CAD studio:** [Dice Chaos Masters](https://github.com/dicechaos/DiceChaosMasters)
 - **Handcrafted dice & tabletop tools:** [dicechaos.com](https://dicechaos.com)

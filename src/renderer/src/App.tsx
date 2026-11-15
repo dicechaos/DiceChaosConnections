@@ -2662,7 +2662,7 @@ function FlowCanvas() {
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0 text-[11px]">
+            <div className="flex flex-wrap items-center gap-2 text-[11px]">
               <a
                 href="https://dicechaos.com"
                 target="_blank"
@@ -2678,9 +2678,20 @@ function FlowCanvas() {
                 href="https://github.com/dicechaos/DiceChaosDisplay"
                 target="_blank"
                 rel="noreferrer"
-                className="text-sky-300 hover:text-sky-200 underline underline-offset-2"
+                className="text-emerald-300 hover:text-emerald-200 underline underline-offset-2"
               >
                 Dice Chaos Display
+              </a>
+              <span className="text-slate-600" aria-hidden="true">
+                •
+              </span>
+              <a
+                href="https://github.com/dicechaos/DiceChaosMasters"
+                target="_blank"
+                rel="noreferrer"
+                className="text-violet-300 hover:text-violet-200 underline underline-offset-2"
+              >
+                Dice Chaos Masters
               </a>
               <span className="text-slate-600" aria-hidden="true">
                 •

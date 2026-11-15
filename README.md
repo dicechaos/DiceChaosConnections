@@ -12,7 +12,8 @@
   <a href="https://github.com/dicechaos/DiceChaosConnections/releases/latest"><img src="https://img.shields.io/github/v/release/dicechaos/DiceChaosConnections?include_prereleases&style=flat-square&label=download" alt="Latest Release" /></a>
   <a href="https://github.com/dicechaos/DiceChaosConnections/actions"><img src="https://img.shields.io/github/actions/workflow/status/dicechaos/DiceChaosConnections/release.yml?branch=main&style=flat-square&label=build" alt="Build Status" /></a>
   <a href="https://dicechaos.com"><img src="https://img.shields.io/badge/website-dicechaos.com-4f46e5?style=flat-square" alt="dicechaos.com" /></a>
-  <a href="https://github.com/dicechaos/DiceChaosDisplay"><img src="https://img.shields.io/badge/companion%20app-Dice%20Chaos%20Display-0ea5e9?style=flat-square" alt="Dice Chaos Display" /></a>
+  <a href="https://github.com/dicechaos/DiceChaosDisplay"><img src="https://img.shields.io/badge/companion%20app-Dice%20Chaos%20Display-10b981?style=flat-square" alt="Dice Chaos Display" /></a>
+  <a href="https://github.com/dicechaos/DiceChaosMasters"><img src="https://img.shields.io/badge/companion%20app-Dice%20Chaos%20Masters-8b5cf6?style=flat-square" alt="Dice Chaos Masters" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/dicechaos/DiceChaosConnections?style=flat-square" alt="MIT License" /></a>
 </p>
 
@@ -20,7 +21,7 @@
 
 **Dice Chaos Connections** is a local-first desktop studio built by **[Dice Chaos](https://dicechaos.com)** for Dungeon Masters, Game Masters, worldbuilders, and tabletop groups who love rolling real handcrafted polyhedral dice around the table. Map out NPCs, factions, territories, clues, secret plots, and edge-to-edge relationships on an infinite tactile canvas—then broadcast a **strictly sanitized, zero-spoiler 2nd-Screen Player Window** straight to your table TV, projector, or Discord/OBS stream in real time, with zero accounts, zero cloud lock-in, and zero subscriptions.
 
-> **Part of the Dice Chaos Tabletop Suite:** Built side-by-side with **[Dice Chaos Display](https://github.com/dicechaos/DiceChaosDisplay)**—our offline 4K/8K battlemap studio, animated video scene player, feathered Fog of War, and true 1-inch (`25.4 mm`) physical miniature TV calibration tool. Plan your world, NPCs, factions, and conspiracy webs in *Connections*, export High-DPI Map Posters or broadcast your zero-spoiler lore board at the table, and launch tactical encounters right under your miniatures and **[Dice Chaos](https://dicechaos.com)** dice in *Display*. Found a bug or have a feature request? [Open an issue on GitHub](https://github.com/dicechaos/DiceChaosConnections/issues) or visit **[dicechaos.com](https://dicechaos.com)**.
+> **Part of the Dice Chaos Tabletop Suite:** Built side-by-side with **[Dice Chaos Display](https://github.com/dicechaos/DiceChaosDisplay)** (offline 4K/8K tabletop TV battlemap studio with feathered Fog of War & true 1-inch physical miniature calibration) and **[Dice Chaos Masters](https://github.com/dicechaos/DiceChaosMasters)** (free offline parametric 3D polyhedral dice master, matched insert blank & MSLA resin support CAD studio). Plan your world, NPCs, factions, and conspiracy webs in *Connections*, run tactical encounters right under your miniatures in *Display*, and forge your own custom sharp-edge resin dice masters in *Masters*—or equip your party at **[dicechaos.com](https://dicechaos.com)**. Found a bug or have a feature request? [Open an issue on GitHub](https://github.com/dicechaos/DiceChaosConnections/issues).
 
 ---
 
@@ -125,5 +126,6 @@ npm run build:linux   # Linux (.AppImage, .deb)
 
 - **Handmade Dice & Tabletop Gear:** [dicechaos.com](https://dicechaos.com)
 - **Companion 4K/8K TV Battlemap Studio:** [Dice Chaos Display](https://github.com/dicechaos/DiceChaosDisplay)
+- **Companion 3D Dice Master CAD Studio:** [Dice Chaos Masters](https://github.com/dicechaos/DiceChaosMasters)
 - **Bug Reports & Feature Requests:** [GitHub Issues](https://github.com/dicechaos/DiceChaosConnections/issues)
 - **License:** MIT License — Copyright © 2026 dicechaos (Gus). See [LICENSE](./LICENSE).
