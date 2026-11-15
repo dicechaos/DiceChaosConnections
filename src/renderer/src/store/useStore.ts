@@ -10,34 +10,57 @@ import {
   Edge
 } from '@xyflow/react'
 import {
+  BuiltinPortId,
   CameraBookmark,
   CampaignEdition,
   CampaignSnapshot,
   CanvasTheme,
   ConnectionPreset,
   CustomEntityType,
+  CustomPerimeterPort,
   DndEdge,
   DndEdgeData,
   DndNode,
+  DragSnapOption,
+  DragSnapSize,
   EntityNodeData,
-  GroupTintKey
+  GroupTintKey,
+  PerimeterAnchor,
+  PerimeterSide
 } from '../types'
 import {
   cleanEdgeForPersistence,
   cleanNodeForPersistence,
-  migrateLoadedCampaign
+  migrateLoadedCampaign,
+  sanitizeCustomPorts
 } from '../utils/campaignSerializer'
 import { mergePartyNotesIntoCampaign, PartyNotesMergeResult } from '../utils/playerSanitizer'
 import { OTHER_EDGE_FILTER_KEY } from '../utils/edgeFilters'
 import {
+  clampPerimeterOffset,
   computeGroupBoundsForMembers,
+  DEFAULT_DRAG_SNAP_SIZE,
+  DRAG_SNAP_ENABLED_STORAGE_KEY,
+  DRAG_SNAP_SIZE_STORAGE_KEY,
+  getBuiltinPortSpec,
+  getDefaultPortStyleForId,
+  hasModifiedBuiltinPorts,
   insertWaypointInNearestSegment,
+  isBuiltinPerimeterPortId,
   isNodeEffectivelyLocked,
   LayerReorderDirection,
   reorderNodesByTier,
-  resolveEdgeEndpointCenter,
+  resolveActivePerimeterPorts,
+  resolveEdgeEndpointPoint,
   resolveEntityExplicitSize,
+  resolveNodePerimeterPorts,
   resolveNodeSize,
+  sanitizeCustomPortShape,
+  sanitizeCustomPortSize,
+  sanitizeCustomPortVisibility,
+  sanitizeDragSnapSize,
+  sanitizePerimeterSide,
+  STANDARD_SIDE_HANDLE_ID,
   tidySelectedNodesGrid
 } from '../utils/graphPipeline'
 import { refactorGraphWikiLinks } from '../utils/wikiLinks'
@@ -139,6 +162,33 @@ interface AppState {
   setEdges: (edges: DndEdge[]) => void
   updateEdgeData: (edgeId: string, data: Partial<DndEdgeData>, recordHistory?: boolean) => void
   reverseEdgeDirection: (edgeId: string) => void
+  addCustomPort: (
+    nodeId: string,
+    anchor?: Partial<Omit<CustomPerimeterPort, 'id'>>
+  ) => CustomPerimeterPort | null
+  updateCustomPort: (
+    nodeId: string,
+    portId: string,
+    patch: Partial<Omit<CustomPerimeterPort, 'id'>>,
+    recordHistory?: boolean
+  ) => void
+  removeCustomPort: (nodeId: string, portId: string) => void
+  resetBuiltinPorts: (nodeId: string, portId?: BuiltinPortId) => void
+  applyPortStyleToAllNodePorts: (nodeId: string, sourcePortId: string) => void
+  updateEdgeEndpointAnchor: (
+    edgeId: string,
+    which: 'source' | 'target',
+    placement: { anchor: PerimeterAnchor | null; customPortId?: string | null },
+    recordHistory?: boolean
+  ) => void
+  reconnectEdgeEndpoint: (
+    edgeId: string,
+    which: 'source' | 'target',
+    nextNodeId: string,
+    placement: { anchor: PerimeterAnchor; customPortId?: string | null },
+    recordHistory?: boolean
+  ) => void
+  resetEdgeEndpointAnchors: (edgeId: string) => void
   addWaypoint: (edgeId: string, x: number, y: number) => void
   updateWaypoint: (edgeId: string, waypointId: string, x: number, y: number) => void
   removeWaypoint: (edgeId: string, waypointId: string) => void
@@ -150,12 +200,16 @@ interface AppState {
   pasteClipboard: (targetPosition?: { x: number; y: number }) => void
   duplicateSelection: (overrideNodeId?: string) => void
 
-  // View & Theme Modes
+  // View, Theme & Drag Ergonomics Modes
   isPlayerView: boolean
   togglePlayerView: () => void
   isDarkMode: boolean
   setDarkModeFromSystem: (isDark: boolean) => void
   toggleDarkMode: () => void
+  dragSnapEnabled: boolean
+  dragSnapSize: DragSnapSize
+  toggleDragSnap: (forceEnabled?: boolean) => void
+  setDragSnapOption: (option: DragSnapOption) => void
 
   // Legend & Presets
   visibleTypes: Record<string, boolean>
@@ -212,6 +266,28 @@ const getInitialDarkMode = (): boolean => {
     return document.documentElement.classList.contains('dark')
   }
   return false
+}
+
+const getInitialDragSnapEnabled = (): boolean => {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem(DRAG_SNAP_ENABLED_STORAGE_KEY) !== 'false'
+    }
+  } catch {
+    // Ignore storage error
+  }
+  return true
+}
+
+const getInitialDragSnapSize = (): DragSnapSize => {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      return sanitizeDragSnapSize(localStorage.getItem(DRAG_SNAP_SIZE_STORAGE_KEY))
+    }
+  } catch {
+    // Ignore storage error
+  }
+  return DEFAULT_DRAG_SNAP_SIZE
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -1086,21 +1162,512 @@ export const useStore = create<AppState>((set, get) => ({
   },
   reverseEdgeDirection: (edgeId: string) => {
     if (get().activeSnapshotId !== null) return
+    if (get().campaignEdition === 'player') {
+      const target = get().edges.find((e) => e.id === edgeId)
+      if (!target?.data?.isPlayerCreated) return
+    }
     get().pushHistory(true)
     set((state) => ({
       edges: state.edges.map((e) => {
         if (e.id !== edgeId) return e
         const reversedWaypoints = e.data?.waypoints ? [...e.data.waypoints].reverse() : undefined
+        const prevSourceAnchor = e.data?.sourceAnchor
+        const prevTargetAnchor = e.data?.targetAnchor
+        const nextData: DndEdgeData = {
+          ...e.data,
+          waypoints: reversedWaypoints
+        }
+        if (prevTargetAnchor) nextData.sourceAnchor = { ...prevTargetAnchor }
+        else delete nextData.sourceAnchor
+        if (prevSourceAnchor) nextData.targetAnchor = { ...prevSourceAnchor }
+        else delete nextData.targetAnchor
         return {
           ...e,
           source: e.target,
           target: e.source,
           sourceHandle: e.targetHandle ?? null,
           targetHandle: e.sourceHandle ?? null,
+          data: nextData
+        }
+      })
+    }))
+  },
+  addCustomPort: (nodeId, anchor) => {
+    if (get().activeSnapshotId !== null) return null
+    const state = get()
+    const nodeById = new Map(state.nodes.map((n) => [n.id, n]))
+    const target = nodeById.get(nodeId)
+    if (!target || (target.type as string) === 'edgeProxy') return null
+    if (isNodeEffectivelyLocked(target, nodeById)) return null
+    if (state.campaignEdition === 'player' && !target.data?.isPlayerCreated) return null
+
+    const isGroup = target.type === 'groupRegion' || Boolean(target.data?.isGroup)
+    const activeExisting = resolveActivePerimeterPorts(target.data, isGroup)
+    let side: PerimeterSide = 'right'
+    let offset = 0.25
+
+    if (anchor?.side !== undefined && anchor?.offset !== undefined) {
+      side = sanitizePerimeterSide(anchor.side, 'right')
+      offset = clampPerimeterOffset(anchor.offset)
+    } else {
+      // Pick the first unoccupied ergonomic slot avoiding both pre-populated and added points
+      const candidateSlots: PerimeterAnchor[] = [
+        { side: 'right', offset: 0.25 },
+        { side: 'right', offset: 0.75 },
+        { side: 'left', offset: 0.25 },
+        { side: 'left', offset: 0.75 },
+        { side: 'top', offset: 0.38 },
+        { side: 'top', offset: 0.62 },
+        { side: 'bottom', offset: 0.38 },
+        { side: 'bottom', offset: 0.62 },
+        { side: 'right', offset: 0.15 },
+        { side: 'right', offset: 0.85 },
+        { side: 'left', offset: 0.15 },
+        { side: 'left', offset: 0.85 }
+      ]
+      const chosen =
+        candidateSlots.find(
+          (slot) =>
+            !activeExisting.some(
+              (p) => p.side === slot.side && Math.abs(p.offset - slot.offset) < 0.05
+            )
+        ) || {
+          side: sanitizePerimeterSide(anchor?.side, 'right'),
+          offset: clampPerimeterOffset(0.15 + ((activeExisting.length * 0.13) % 0.7))
+        }
+      side = chosen.side
+      offset = chosen.offset
+    }
+
+    const shape = anchor?.shape ? sanitizeCustomPortShape(anchor.shape) : 'diamond'
+    const color = normalizeHexColor(anchor?.color)
+    const size = anchor?.size ? sanitizeCustomPortSize(anchor.size) : 'md'
+    const visibility = anchor?.visibility ? sanitizeCustomPortVisibility(anchor.visibility) : 'dm'
+    const showLabel = Boolean(anchor?.showLabel)
+
+    const newPort: CustomPerimeterPort = {
+      id: `cp-${crypto.randomUUID().slice(0, 8)}`,
+      side,
+      offset,
+      ...(anchor?.label?.trim() ? { label: anchor.label.trim() } : {}),
+      ...(shape !== 'diamond' ? { shape } : {}),
+      ...(color ? { color } : {}),
+      ...(size !== 'md' ? { size } : {}),
+      ...(visibility !== 'dm' ? { visibility } : {}),
+      ...(showLabel ? { showLabel: true } : {})
+    }
+
+    get().pushHistory(true)
+    set((prev) => ({
+      nodes: prev.nodes.map((n) =>
+        n.id === nodeId
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                customPorts: sanitizeCustomPorts(
+                  [...(n.data?.customPorts || []), newPort],
+                  isGroup,
+                  false
+                )
+              }
+            }
+          : n
+      )
+    }))
+
+    return newPort
+  },
+  updateCustomPort: (nodeId, portId, patch, recordHistory = false) => {
+    if (get().activeSnapshotId !== null) return
+    const state = get()
+    const nodeById = new Map(state.nodes.map((n) => [n.id, n]))
+    const target = nodeById.get(nodeId)
+    if (!target) return
+    const isGroup = target.type === 'groupRegion' || Boolean(target.data?.isGroup)
+    const currentPort = resolveNodePerimeterPorts(target.data, isGroup).find(
+      (p) => p.id === portId
+    )
+    if (!currentPort) return
+    if (isNodeEffectivelyLocked(target, nodeById)) return
+    if (state.campaignEdition === 'player' && !target.data?.isPlayerCreated) return
+
+    if (recordHistory) get().pushHistory(true)
+    set((prev) => ({
+      nodes: prev.nodes.map((n) => {
+        if (n.id !== nodeId) return n
+        const nIsGroup = n.type === 'groupRegion' || Boolean(n.data?.isGroup)
+        const basePort = resolveNodePerimeterPorts(n.data, nIsGroup).find((p) => p.id === portId)
+        if (!basePort) return n
+        const defaults = getDefaultPortStyleForId(portId, nIsGroup)
+
+        const nextSide =
+          patch.side !== undefined
+            ? sanitizePerimeterSide(patch.side, basePort.side)
+            : basePort.side
+        const nextOffset =
+          patch.offset !== undefined ? clampPerimeterOffset(patch.offset) : basePort.offset
+        const nextLabel =
+          patch.label !== undefined ? patch.label.trim() || undefined : basePort.label
+        const nextShape =
+          patch.shape !== undefined
+            ? sanitizeCustomPortShape(patch.shape, defaults.shape)
+            : sanitizeCustomPortShape(basePort.shape, defaults.shape)
+        const nextColor = Object.prototype.hasOwnProperty.call(patch, 'color')
+          ? normalizeHexColor(patch.color)
+          : normalizeHexColor(basePort.color)
+        const nextSize =
+          patch.size !== undefined
+            ? sanitizeCustomPortSize(patch.size, defaults.size)
+            : sanitizeCustomPortSize(basePort.size, defaults.size)
+        const nextVisibility =
+          patch.visibility !== undefined
+            ? sanitizeCustomPortVisibility(patch.visibility, defaults.visibility)
+            : sanitizeCustomPortVisibility(basePort.visibility, defaults.visibility)
+        const nextShowLabel =
+          patch.showLabel !== undefined
+            ? Boolean(patch.showLabel)
+            : Boolean(basePort.showLabel)
+        const nextDisabled =
+          patch.disabled !== undefined ? Boolean(patch.disabled) : false
+
+        const updated: CustomPerimeterPort = {
+          id: portId,
+          side: nextSide,
+          offset: nextOffset,
+          ...(nextLabel ? { label: nextLabel } : {}),
+          shape: nextShape,
+          ...(nextColor ? { color: nextColor } : {}),
+          size: nextSize,
+          visibility: nextVisibility,
+          ...(nextShowLabel ? { showLabel: true } : {}),
+          ...(nextDisabled ? { disabled: true } : {})
+        }
+
+        const existingRaw = n.data?.customPorts || []
+        const hasExistingEntry = existingRaw.some((p) => p.id === portId)
+        const mergedRaw = hasExistingEntry
+          ? existingRaw.map((p) => (p.id === portId ? updated : p))
+          : [...existingRaw, updated]
+
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            customPorts: sanitizeCustomPorts(mergedRaw, nIsGroup, false)
+          }
+        }
+      })
+    }))
+  },
+  removeCustomPort: (nodeId, portId) => {
+    if (get().activeSnapshotId !== null) return
+    const state = get()
+    const nodeById = new Map(state.nodes.map((n) => [n.id, n]))
+    const target = nodeById.get(nodeId)
+    if (!target) return
+    const isGroup = target.type === 'groupRegion' || Boolean(target.data?.isGroup)
+    const removedPort = resolveActivePerimeterPorts(target.data, isGroup).find(
+      (p) => p.id === portId
+    )
+    if (!removedPort) return
+    if (isNodeEffectivelyLocked(target, nodeById)) return
+    if (state.campaignEdition === 'player' && !target.data?.isPlayerCreated) return
+
+    const fallbackAnchor: PerimeterAnchor = {
+      side: sanitizePerimeterSide(removedPort.side, 'right'),
+      offset: clampPerimeterOffset(removedPort.offset)
+    }
+    const fallbackHandle = STANDARD_SIDE_HANDLE_ID[fallbackAnchor.side]
+    const builtinSpec = getBuiltinPortSpec(portId)
+
+    get().pushHistory(true)
+    set((prev) => ({
+      nodes: prev.nodes.map((n) => {
+        if (n.id !== nodeId) return n
+        const nIsGroup = n.type === 'groupRegion' || Boolean(n.data?.isGroup)
+        const existingRaw = n.data?.customPorts || []
+        let nextRaw: CustomPerimeterPort[]
+        if (builtinSpec) {
+          const disabledEntry: CustomPerimeterPort = {
+            id: builtinSpec.id,
+            side: builtinSpec.side,
+            offset: builtinSpec.offset,
+            disabled: true
+          }
+          nextRaw = existingRaw.some((p) => p.id === builtinSpec.id)
+            ? existingRaw.map((p) => (p.id === builtinSpec.id ? disabledEntry : p))
+            : [...existingRaw, disabledEntry]
+        } else {
+          nextRaw = existingRaw.filter((p) => p.id !== portId)
+        }
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            customPorts: sanitizeCustomPorts(nextRaw, nIsGroup, false)
+          }
+        }
+      }),
+      edges: prev.edges.map((e) => {
+        const matchSource =
+          e.source === nodeId && e.sourceHandle === portId && !e.data?.sourceAnchor
+        const matchTarget =
+          e.target === nodeId && e.targetHandle === portId && !e.data?.targetAnchor
+        if (!matchSource && !matchTarget) return e
+        return {
+          ...e,
+          sourceHandle: matchSource ? fallbackHandle : e.sourceHandle,
+          targetHandle: matchTarget ? fallbackHandle : e.targetHandle,
           data: {
             ...e.data,
-            waypoints: reversedWaypoints
+            ...(matchSource ? { sourceAnchor: { ...fallbackAnchor } } : {}),
+            ...(matchTarget ? { targetAnchor: { ...fallbackAnchor } } : {})
           }
+        }
+      })
+    }))
+  },
+  resetBuiltinPorts: (nodeId, portId) => {
+    if (get().activeSnapshotId !== null) return
+    const state = get()
+    const nodeById = new Map(state.nodes.map((n) => [n.id, n]))
+    const target = nodeById.get(nodeId)
+    if (!target) return
+    const isGroup = target.type === 'groupRegion' || Boolean(target.data?.isGroup)
+    if (isNodeEffectivelyLocked(target, nodeById)) return
+    if (state.campaignEdition === 'player' && !target.data?.isPlayerCreated) return
+    if (!hasModifiedBuiltinPorts(target.data, isGroup)) return
+
+    get().pushHistory(true)
+    set((prev) => ({
+      nodes: prev.nodes.map((n) => {
+        if (n.id !== nodeId || !n.data?.customPorts) return n
+        const nIsGroup = n.type === 'groupRegion' || Boolean(n.data?.isGroup)
+        const filtered = n.data.customPorts.filter((p) =>
+          portId ? p.id !== portId : !isBuiltinPerimeterPortId(p.id)
+        )
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            customPorts: sanitizeCustomPorts(filtered, nIsGroup, false)
+          }
+        }
+      })
+    }))
+  },
+  applyPortStyleToAllNodePorts: (nodeId, sourcePortId) => {
+    if (get().activeSnapshotId !== null) return
+    const state = get()
+    const nodeById = new Map(state.nodes.map((n) => [n.id, n]))
+    const target = nodeById.get(nodeId)
+    if (!target) return
+    const isGroup = target.type === 'groupRegion' || Boolean(target.data?.isGroup)
+    if (isNodeEffectivelyLocked(target, nodeById)) return
+    if (state.campaignEdition === 'player' && !target.data?.isPlayerCreated) return
+
+    const activePorts = resolveActivePerimeterPorts(target.data, isGroup)
+    const sourcePort = activePorts.find((p) => p.id === sourcePortId)
+    if (!sourcePort || activePorts.length < 2) return
+
+    const srcDefaults = getDefaultPortStyleForId(sourcePort.id, isGroup)
+    const targetShape = sanitizeCustomPortShape(sourcePort.shape, srcDefaults.shape)
+    const targetColor = normalizeHexColor(sourcePort.color)
+    const targetSize = sanitizeCustomPortSize(sourcePort.size, srcDefaults.size)
+    const targetVis = sanitizeCustomPortVisibility(sourcePort.visibility, srcDefaults.visibility)
+    const targetShowLabel = Boolean(sourcePort.showLabel)
+
+    get().pushHistory(true)
+    set((prev) => ({
+      nodes: prev.nodes.map((n) => {
+        if (n.id !== nodeId) return n
+        const nIsGroup = n.type === 'groupRegion' || Boolean(n.data?.isGroup)
+        const allPorts = resolveNodePerimeterPorts(n.data, nIsGroup)
+        const updatedPorts: CustomPerimeterPort[] = allPorts.map((p) => {
+          if (p.disabled) return p
+          return {
+            ...p,
+            shape: targetShape,
+            color: targetColor,
+            size: targetSize,
+            visibility: targetVis,
+            showLabel: targetShowLabel
+          }
+        })
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            customPorts: sanitizeCustomPorts(updatedPorts, nIsGroup, false)
+          }
+        }
+      })
+    }))
+  },
+  updateEdgeEndpointAnchor: (edgeId, which, placement, recordHistory = false) => {
+    if (get().activeSnapshotId !== null) return
+    const state = get()
+    const edge = state.edges.find((e) => e.id === edgeId)
+    if (!edge) return
+    if (state.campaignEdition === 'player' && !edge.data?.isPlayerCreated) return
+
+    if (recordHistory) get().pushHistory(true)
+    set((prev) => ({
+      edges: prev.edges.map((e) => {
+        if (e.id !== edgeId) return e
+        const nextData: DndEdgeData = { ...e.data }
+
+        if (placement.customPortId) {
+          if (which === 'source') {
+            delete nextData.sourceAnchor
+            return { ...e, sourceHandle: placement.customPortId, data: nextData }
+          } else {
+            delete nextData.targetAnchor
+            return { ...e, targetHandle: placement.customPortId, data: nextData }
+          }
+        }
+
+        if (placement.anchor === null) {
+          if (which === 'source') {
+            const prevAnchor = e.data?.sourceAnchor
+            delete nextData.sourceAnchor
+            const curH = e.sourceHandle
+            const portSide =
+              curH && curH.startsWith('cp-')
+                ? prev.nodes
+                    .find((n) => n.id === e.source)
+                    ?.data?.customPorts?.find((p) => p.id === curH)?.side
+                : undefined
+            const nextH =
+              curH && curH.startsWith('cp-')
+                ? STANDARD_SIDE_HANDLE_ID[portSide || prevAnchor?.side || 'right']
+                : curH
+            return { ...e, sourceHandle: nextH ?? null, data: nextData }
+          } else {
+            const prevAnchor = e.data?.targetAnchor
+            delete nextData.targetAnchor
+            const curH = e.targetHandle
+            const portSide =
+              curH && curH.startsWith('cp-')
+                ? prev.nodes
+                    .find((n) => n.id === e.target)
+                    ?.data?.customPorts?.find((p) => p.id === curH)?.side
+                : undefined
+            const nextH =
+              curH && curH.startsWith('cp-')
+                ? STANDARD_SIDE_HANDLE_ID[portSide || prevAnchor?.side || 'left']
+                : curH
+            return { ...e, targetHandle: nextH ?? null, data: nextData }
+          }
+        }
+
+        const sanitizedAnchor: PerimeterAnchor = {
+          side: sanitizePerimeterSide(placement.anchor.side, which === 'source' ? 'right' : 'left'),
+          offset: clampPerimeterOffset(placement.anchor.offset)
+        }
+        const sideHandle = STANDARD_SIDE_HANDLE_ID[sanitizedAnchor.side]
+
+        if (which === 'source') {
+          nextData.sourceAnchor = sanitizedAnchor
+          return { ...e, sourceHandle: sideHandle, data: nextData }
+        } else {
+          nextData.targetAnchor = sanitizedAnchor
+          return { ...e, targetHandle: sideHandle, data: nextData }
+        }
+      })
+    }))
+  },
+  reconnectEdgeEndpoint: (edgeId, which, nextNodeId, placement, recordHistory = true) => {
+    if (get().activeSnapshotId !== null) return
+    const state = get()
+    const edge = state.edges.find((e) => e.id === edgeId)
+    if (!edge) return
+    if (state.campaignEdition === 'player' && !edge.data?.isPlayerCreated) return
+
+    const nextSource = which === 'source' ? nextNodeId : edge.source
+    const nextTarget = which === 'target' ? nextNodeId : edge.target
+    if (nextSource === nextTarget) return
+
+    const sanitizedAnchor: PerimeterAnchor = {
+      side: sanitizePerimeterSide(placement.anchor.side, which === 'source' ? 'right' : 'left'),
+      offset: clampPerimeterOffset(placement.anchor.offset)
+    }
+    const handleId = placement.customPortId || STANDARD_SIDE_HANDLE_ID[sanitizedAnchor.side]
+
+    if (recordHistory) get().pushHistory(true)
+    set((prev) => ({
+      nodes: prev.nodes.map((n) => ({ ...n, selected: false })),
+      edges: prev.edges.map((e) => {
+        if (e.id !== edgeId) return { ...e, selected: false }
+        const nextData: DndEdgeData = { ...e.data }
+        if (which === 'source') {
+          if (placement.customPortId) delete nextData.sourceAnchor
+          else nextData.sourceAnchor = sanitizedAnchor
+          return {
+            ...e,
+            source: nextNodeId,
+            sourceHandle: handleId,
+            selected: true,
+            data: nextData
+          }
+        } else {
+          if (placement.customPortId) delete nextData.targetAnchor
+          else nextData.targetAnchor = sanitizedAnchor
+          return {
+            ...e,
+            target: nextNodeId,
+            targetHandle: handleId,
+            selected: true,
+            data: nextData
+          }
+        }
+      })
+    }))
+  },
+  resetEdgeEndpointAnchors: (edgeId: string) => {
+    if (get().activeSnapshotId !== null) return
+    const state = get()
+    const edge = state.edges.find((e) => e.id === edgeId)
+    if (!edge) return
+    if (state.campaignEdition === 'player' && !edge.data?.isPlayerCreated) return
+
+    const hasSourceCustom =
+      Boolean(edge.data?.sourceAnchor) || Boolean(edge.sourceHandle?.startsWith('cp-'))
+    const hasTargetCustom =
+      Boolean(edge.data?.targetAnchor) || Boolean(edge.targetHandle?.startsWith('cp-'))
+    if (!hasSourceCustom && !hasTargetCustom) return
+
+    get().pushHistory(true)
+    set((prev) => ({
+      edges: prev.edges.map((e) => {
+        if (e.id !== edgeId) return e
+        const nextData: DndEdgeData = { ...e.data }
+        const prevSA = nextData.sourceAnchor
+        const prevTA = nextData.targetAnchor
+        delete nextData.sourceAnchor
+        delete nextData.targetAnchor
+        const sourcePortSide = e.sourceHandle?.startsWith('cp-')
+          ? prev.nodes
+              .find((n) => n.id === e.source)
+              ?.data?.customPorts?.find((p) => p.id === e.sourceHandle)?.side
+          : undefined
+        const targetPortSide = e.targetHandle?.startsWith('cp-')
+          ? prev.nodes
+              .find((n) => n.id === e.target)
+              ?.data?.customPorts?.find((p) => p.id === e.targetHandle)?.side
+          : undefined
+        const nextSH = e.sourceHandle?.startsWith('cp-')
+          ? STANDARD_SIDE_HANDLE_ID[sourcePortSide || prevSA?.side || 'right']
+          : e.sourceHandle
+        const nextTH = e.targetHandle?.startsWith('cp-')
+          ? STANDARD_SIDE_HANDLE_ID[targetPortSide || prevTA?.side || 'left']
+          : e.targetHandle
+        return {
+          ...e,
+          sourceHandle: nextSH ?? null,
+          targetHandle: nextTH ?? null,
+          data: nextData
         }
       })
     }))
@@ -1112,12 +1679,12 @@ export const useStore = create<AppState>((set, get) => ({
       edges: state.edges.map((e) => {
         if (e.id === edgeId) {
           const waypoints = e.data?.waypoints || []
-          const sourceCenter = resolveEdgeEndpointCenter(e.source, state.nodes, state.edges)
-          const targetCenter = resolveEdgeEndpointCenter(e.target, state.nodes, state.edges)
+          const sourcePt = resolveEdgeEndpointPoint(e, 'source', state.nodes, state.edges)
+          const targetPt = resolveEdgeEndpointPoint(e, 'target', state.nodes, state.edges)
           const nextWaypoints = insertWaypointInNearestSegment(
             waypoints,
-            sourceCenter,
-            targetCenter,
+            sourcePt,
+            targetPt,
             x,
             y
           )
@@ -1225,14 +1792,34 @@ export const useStore = create<AppState>((set, get) => ({
 
     const isPlayerEdition = get().campaignEdition === 'player'
     const idMap = new Map<string, string>()
+    const portIdMapByOldNodeId = new Map<string, Map<string, string>>()
     for (const n of clipboard.nodes) {
       const isGroup = n.type === 'groupRegion' || Boolean(n.data?.isGroup)
       idMap.set(n.id, isGroup ? `group-${crypto.randomUUID()}` : crypto.randomUUID())
+      if (n.data?.customPorts && n.data.customPorts.length > 0) {
+        const portMap = new Map<string, string>()
+        for (const p of n.data.customPorts) {
+          if (!isBuiltinPerimeterPortId(p.id)) {
+            portMap.set(p.id, `cp-${crypto.randomUUID().slice(0, 8)}`)
+          }
+        }
+        if (portMap.size > 0) {
+          portIdMapByOldNodeId.set(n.id, portMap)
+        }
+      }
     }
 
     const newNodes: DndNode[] = clipboard.nodes.map((n) => {
       const newId = idMap.get(n.id)!
       const remappedGroupId = n.data.groupId ? idMap.get(n.data.groupId) : undefined
+      const portMap = portIdMapByOldNodeId.get(n.id)
+      const remappedPorts =
+        n.data?.customPorts && portMap
+          ? n.data.customPorts.map((p) => ({
+              ...p,
+              id: portMap.get(p.id) || p.id
+            }))
+          : n.data?.customPorts
       return {
         ...n,
         id: newId,
@@ -1241,28 +1828,43 @@ export const useStore = create<AppState>((set, get) => ({
         data: {
           ...n.data,
           groupId: remappedGroupId,
+          ...(remappedPorts ? { customPorts: remappedPorts } : {}),
           label: clipboard.nodes.length === 1 ? `${n.data.label} (Copy)` : n.data.label,
           ...(isPlayerEdition ? { isPlayerCreated: true, isHidden: false } : {})
         }
       }
     })
 
-    const newEdges: DndEdge[] = clipboard.edges.map((e) => ({
-      ...e,
-      id: `edge-${crypto.randomUUID()}`,
-      source: idMap.get(e.source) || e.source,
-      target: idMap.get(e.target) || e.target,
-      selected: false,
-      data: {
-        ...e.data,
-        ...(isPlayerEdition ? { isPlayerCreated: true, isHidden: false } : {}),
-        waypoints: e.data?.waypoints?.map((w) => ({
-          id: crypto.randomUUID(),
-          x: w.x + dx,
-          y: w.y + dy
-        }))
+    const newEdges: DndEdge[] = clipboard.edges.map((e) => {
+      const sourcePortMap = portIdMapByOldNodeId.get(e.source)
+      const targetPortMap = portIdMapByOldNodeId.get(e.target)
+      const nextSourceHandle =
+        e.sourceHandle && sourcePortMap?.has(e.sourceHandle)
+          ? sourcePortMap.get(e.sourceHandle)!
+          : e.sourceHandle
+      const nextTargetHandle =
+        e.targetHandle && targetPortMap?.has(e.targetHandle)
+          ? targetPortMap.get(e.targetHandle)!
+          : e.targetHandle
+      return {
+        ...e,
+        id: `edge-${crypto.randomUUID()}`,
+        source: idMap.get(e.source) || e.source,
+        target: idMap.get(e.target) || e.target,
+        sourceHandle: nextSourceHandle ?? null,
+        targetHandle: nextTargetHandle ?? null,
+        selected: false,
+        data: {
+          ...e.data,
+          ...(isPlayerEdition ? { isPlayerCreated: true, isHidden: false } : {}),
+          waypoints: e.data?.waypoints?.map((w) => ({
+            id: crypto.randomUUID(),
+            x: w.x + dx,
+            y: w.y + dy
+          }))
+        }
       }
-    }))
+    })
 
     set((state) => ({
       nodes: [...state.nodes.map((n) => ({ ...n, selected: false })), ...newNodes],
@@ -1306,6 +1908,45 @@ export const useStore = create<AppState>((set, get) => ({
       document.documentElement.classList.toggle('dark', nextDark)
       return { isDarkMode: nextDark }
     })
+  },
+  dragSnapEnabled: getInitialDragSnapEnabled(),
+  dragSnapSize: getInitialDragSnapSize(),
+  toggleDragSnap: (forceEnabled?: boolean) => {
+    set((state) => {
+      const nextEnabled =
+        typeof forceEnabled === 'boolean' ? forceEnabled : !state.dragSnapEnabled
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(DRAG_SNAP_ENABLED_STORAGE_KEY, nextEnabled ? 'true' : 'false')
+        }
+      } catch {
+        // Ignore storage error
+      }
+      return { dragSnapEnabled: nextEnabled }
+    })
+  },
+  setDragSnapOption: (option: DragSnapOption) => {
+    if (option === 0) {
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(DRAG_SNAP_ENABLED_STORAGE_KEY, 'false')
+        }
+      } catch {
+        // Ignore storage error
+      }
+      set({ dragSnapEnabled: false })
+      return
+    }
+    const nextSize = sanitizeDragSnapSize(option)
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(DRAG_SNAP_ENABLED_STORAGE_KEY, 'true')
+        localStorage.setItem(DRAG_SNAP_SIZE_STORAGE_KEY, String(nextSize))
+      }
+    } catch {
+      // Ignore storage error
+    }
+    set({ dragSnapEnabled: true, dragSnapSize: nextSize })
   },
 
   visibleTypes: {

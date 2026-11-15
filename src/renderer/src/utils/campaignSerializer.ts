@@ -6,10 +6,108 @@ import {
   CanvasTheme,
   ConnectionPreset,
   CustomEntityType,
+  CustomPerimeterPort,
   DndEdge,
   DndNode,
-  FieldDiffEntry
+  FieldDiffEntry,
+  PerimeterAnchor
 } from '../types'
+import {
+  clampPerimeterOffset,
+  getBuiltinPortSpec,
+  getDefaultPortStyleForId,
+  isBuiltinPerimeterPortId,
+  isBuiltinPortModified,
+  sanitizeCustomPortShape,
+  sanitizeCustomPortSize,
+  sanitizeCustomPortVisibility,
+  sanitizePerimeterSide
+} from './graphPipeline'
+import { normalizeHexColor } from './colorUtils'
+
+export function sanitizeCustomPorts(
+  raw: unknown,
+  isGroup = false,
+  hideSecrets = false
+): CustomPerimeterPort[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined
+  const seenIds = new Set<string>()
+  const cleaned: CustomPerimeterPort[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const id = typeof (item as any).id === 'string' ? (item as any).id.trim() : ''
+    if (!id || seenIds.has(id)) continue
+    seenIds.add(id)
+
+    const builtinSpec = getBuiltinPortSpec(id)
+    const defaults = getDefaultPortStyleForId(id, isGroup)
+    const side = sanitizePerimeterSide((item as any).side, builtinSpec?.side ?? 'right')
+    const rawOffset = Number((item as any).offset)
+    const offset = clampPerimeterOffset(
+      Number.isFinite(rawOffset) ? rawOffset : (builtinSpec?.offset ?? 0.5)
+    )
+    const disabled = Boolean(builtinSpec && (item as any).disabled)
+
+    if (!builtinSpec && Boolean((item as any).disabled)) {
+      continue
+    }
+
+    const visibility = sanitizeCustomPortVisibility((item as any).visibility, defaults.visibility)
+    const isPublic = visibility === 'public' && !disabled
+    const label =
+      (!hideSecrets || isPublic) &&
+      typeof (item as any).label === 'string' &&
+      (item as any).label.trim()
+        ? (item as any).label.trim()
+        : undefined
+    const shape =
+      !hideSecrets || isPublic
+        ? sanitizeCustomPortShape((item as any).shape, defaults.shape)
+        : defaults.shape
+    const color =
+      !hideSecrets || isPublic ? normalizeHexColor((item as any).color) : undefined
+    const size =
+      !hideSecrets || isPublic
+        ? sanitizeCustomPortSize((item as any).size, defaults.size)
+        : defaults.size
+    const effectiveVisibility = !hideSecrets || isPublic ? visibility : defaults.visibility
+    const showLabel = Boolean((!hideSecrets || isPublic) && (item as any).showLabel)
+
+    const entry: CustomPerimeterPort = {
+      id,
+      side,
+      offset,
+      ...(label ? { label } : {}),
+      ...(shape !== defaults.shape ? { shape } : {}),
+      ...(color ? { color } : {}),
+      ...(size !== defaults.size ? { size } : {}),
+      ...(effectiveVisibility !== defaults.visibility ? { visibility: effectiveVisibility } : {}),
+      ...(showLabel ? { showLabel: true } : {}),
+      ...(disabled ? { disabled: true } : {})
+    }
+
+    if (isBuiltinPerimeterPortId(id) && !isBuiltinPortModified(entry, isGroup)) {
+      continue
+    }
+
+    cleaned.push(entry)
+  }
+  return cleaned.length > 0 ? cleaned : undefined
+}
+
+function sanitizePerimeterAnchor(
+  raw: unknown,
+  fallbackSide: 'top' | 'right' | 'bottom' | 'left'
+): PerimeterAnchor | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  if (typeof (raw as any).side !== 'string' || typeof (raw as any).offset !== 'number') {
+    return undefined
+  }
+  return {
+    side: sanitizePerimeterSide((raw as any).side, fallbackSide),
+    offset: clampPerimeterOffset((raw as any).offset)
+  }
+}
 
 export function cleanNodeForPersistence(node: DndNode): DndNode {
   const {
@@ -32,7 +130,13 @@ export function cleanNodeForPersistence(node: DndNode): DndNode {
     !isGroupNode && typeof restData.entityHeight === 'number' && Number.isFinite(restData.entityHeight) && restData.entityHeight > 0
       ? Math.round(restData.entityHeight)
       : undefined
-  const { entityWidth: _ew, entityHeight: _eh, ...cleanRestData } = restData
+  const sanitizedCustomPorts = sanitizeCustomPorts(restData.customPorts, isGroupNode, false)
+  const {
+    entityWidth: _ew,
+    entityHeight: _eh,
+    customPorts: _cp,
+    ...cleanRestData
+  } = restData
 
   return {
     id: node.id,
@@ -45,6 +149,7 @@ export function cleanNodeForPersistence(node: DndNode): DndNode {
       ...cleanRestData,
       ...(sanitizedEntityWidth !== undefined ? { entityWidth: sanitizedEntityWidth } : {}),
       ...(sanitizedEntityHeight !== undefined ? { entityHeight: sanitizedEntityHeight } : {}),
+      ...(sanitizedCustomPorts ? { customPorts: sanitizedCustomPorts } : {}),
       ...(isGroupNode ? { isGroup: true, entityType: cleanRestData.entityType || 'Group' } : {}),
       publicNotes: resolvedPublic
     }
@@ -57,8 +162,13 @@ export function cleanEdgeForPersistence(edge: DndEdge): DndEdge {
     isDegreeFaded: _df,
     isSpotlighted: _sp,
     diffStatus: _ds,
+    sourceAnchor: rawSourceAnchor,
+    targetAnchor: rawTargetAnchor,
     ...restData
   } = edge.data || {}
+
+  const sanitizedSourceAnchor = sanitizePerimeterAnchor(rawSourceAnchor, 'right')
+  const sanitizedTargetAnchor = sanitizePerimeterAnchor(rawTargetAnchor, 'left')
 
   return {
     id: edge.id,
@@ -67,7 +177,11 @@ export function cleanEdgeForPersistence(edge: DndEdge): DndEdge {
     target: edge.target,
     sourceHandle: edge.sourceHandle ?? null,
     targetHandle: edge.targetHandle ?? null,
-    data: restData
+    data: {
+      ...restData,
+      ...(sanitizedSourceAnchor ? { sourceAnchor: sanitizedSourceAnchor } : {}),
+      ...(sanitizedTargetAnchor ? { targetAnchor: sanitizedTargetAnchor } : {})
+    }
   }
 }
 
@@ -441,6 +555,7 @@ function nodeSignature(n: DndNode, hideSecrets: boolean): string {
     goal: d.dndFields?.goal || '',
     aliases: [...(d.aliases || [])],
     tags: [...(d.tags || [])],
+    customPorts: sanitizeCustomPorts(d.customPorts, Boolean(d.isGroup), hideSecrets) || [],
     ...(hideSecrets
       ? {}
       : {
@@ -457,6 +572,10 @@ function edgeSignature(e: DndEdge, hideSecrets: boolean): string {
   return JSON.stringify({
     source: e.source,
     target: e.target,
+    sourceCustomPort: e.sourceHandle?.startsWith('cp-') ? e.sourceHandle : null,
+    targetCustomPort: e.targetHandle?.startsWith('cp-') ? e.targetHandle : null,
+    sourceAnchor: sanitizePerimeterAnchor(d.sourceAnchor, 'right') || null,
+    targetAnchor: sanitizePerimeterAnchor(d.targetAnchor, 'left') || null,
     label: d.label || '',
     color: d.color || '',
     lineStyle: d.lineStyle || 'solid',

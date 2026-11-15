@@ -18,6 +18,7 @@ import { STARTER_CAMPAIGN_TITLE } from './store/starterMap'
 import {
   CameraBookmark,
   CanvasTheme,
+  DragSnapOption,
   FieldDiffEntry,
   PlayerWindowCommand
 } from './types'
@@ -46,7 +47,13 @@ import {
 } from './utils/campaignSerializer'
 import { sanitizeCampaignForPlayers } from './utils/playerSanitizer'
 import { normalizeHexColor } from './utils/colorUtils'
-import { computeVisibleGraph, resolveNodeSize } from './utils/graphPipeline'
+import {
+  computeHarmonizedBackgroundGap,
+  computeVisibleGraph,
+  DRAG_SNAP_LABELS,
+  DRAG_SNAP_OPTIONS,
+  resolveNodeSize
+} from './utils/graphPipeline'
 import { toPng } from 'html-to-image'
 import {
   Search,
@@ -69,6 +76,7 @@ import {
   Play,
   Compass,
   Map as MapIcon,
+  Grid3x3,
   ChevronUp,
   ChevronDown,
   Eye
@@ -161,6 +169,10 @@ function FlowCanvas() {
     isDarkMode,
     setDarkModeFromSystem,
     toggleDarkMode,
+    dragSnapEnabled,
+    dragSnapSize,
+    toggleDragSnap,
+    setDragSnapOption,
     undo,
     redo,
     past,
@@ -195,6 +207,7 @@ function FlowCanvas() {
   const [searchMatchIndex, setSearchMatchIndex] = useState(0)
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [showMiniMap, setShowMiniMap] = useState(false)
+  const [isAltPressed, setIsAltPressed] = useState(false)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [previewSelection, setPreviewSelection] = useState<{
     nodeId?: string
@@ -260,6 +273,22 @@ function FlowCanvas() {
     setPreviewSelection(null)
   }, [activeSnapshotId])
 
+  // Track Alt modifier key so holding Alt mid-drag temporarily inverts grid snap without UI jitter
+  useEffect(() => {
+    const onKeyChange = (e: KeyboardEvent) => {
+      setIsAltPressed(e.altKey)
+    }
+    const onWindowBlur = () => setIsAltPressed(false)
+    window.addEventListener('keydown', onKeyChange)
+    window.addEventListener('keyup', onKeyChange)
+    window.addEventListener('blur', onWindowBlur)
+    return () => {
+      window.removeEventListener('keydown', onKeyChange)
+      window.removeEventListener('keyup', onKeyChange)
+      window.removeEventListener('blur', onWindowBlur)
+    }
+  }, [])
+
   // Listen for CustomEdge HTML label clicks during Snapshot Preview
   useEffect(() => {
     if (!isSnapshotPreview) return
@@ -272,6 +301,36 @@ function FlowCanvas() {
     window.addEventListener('dcc:select-edge', onSelectEdgeEvent)
     return () => window.removeEventListener('dcc:select-edge', onSelectEdgeEvent)
   }, [isSnapshotPreview])
+
+  // Open dedicated Connection Point style menu when right-clicking a custom perimeter port
+  useEffect(() => {
+    if (isReadOnlyCanvas) return
+    const onPortContextMenu = (e: Event) => {
+      const detail = (
+        e as CustomEvent<{ nodeId?: string; portId?: string; screenX?: number; screenY?: number }>
+      ).detail
+      if (
+        !detail?.nodeId ||
+        !detail?.portId ||
+        typeof detail.screenX !== 'number' ||
+        typeof detail.screenY !== 'number'
+      ) {
+        return
+      }
+      const st = useStore.getState()
+      st.setNodes(st.nodes.map((n) => ({ ...n, selected: n.id === detail.nodeId })))
+      st.setEdges(st.edges.map((ed) => ({ ...ed, selected: false })))
+      setContextMenu({
+        mode: 'custom-port',
+        nodeId: detail.nodeId,
+        portId: detail.portId,
+        screenX: detail.screenX,
+        screenY: detail.screenY
+      })
+    }
+    window.addEventListener('dcc:port-context-menu', onPortContextMenu)
+    return () => window.removeEventListener('dcc:port-context-menu', onPortContextMenu)
+  }, [isReadOnlyCanvas])
 
   // Follow system color-scheme changes when no explicit override is pinned in localStorage
   useEffect(() => {
@@ -335,6 +394,16 @@ function FlowCanvas() {
       offClosed()
     }
   }, [pushSanitizedStateToPlayerWindow])
+
+  // Route canvas & custom-handle accessibility announcements into the centralized polite live region
+  useEffect(() => {
+    const onAnnounce = (e: Event) => {
+      const msg = (e as CustomEvent<{ message?: string }>).detail?.message
+      if (msg) setPoliteSaveAnnouncement(msg)
+    }
+    window.addEventListener('dcc:announce', onAnnounce)
+    return () => window.removeEventListener('dcc:announce', onAnnounce)
+  }, [])
 
   // Live-sync public graph changes to Player Screen unless paused or in Player Edition
   useEffect(() => {
@@ -851,6 +920,23 @@ function FlowCanvas() {
         !e.altKey
       ) {
         setShowMiniMap((v) => !v)
+      } else if (
+        !isReadOnlyCanvas &&
+        e.key.toLowerCase() === 'g' &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        !document.querySelector('dialog[open]')
+      ) {
+        e.preventDefault()
+        const st = useStore.getState()
+        const nextEnabled = !st.dragSnapEnabled
+        st.toggleDragSnap(nextEnabled)
+        setPoliteSaveAnnouncement(
+          nextEnabled
+            ? `Grid snap enabled (${st.dragSnapSize}px)`
+            : 'Grid snap off (Free 1px)'
+        )
       } else if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
         setShowHelpModal(true)
       } else if (e.key === 'Escape' && !showCommandPalette) {
@@ -1361,6 +1447,24 @@ function FlowCanvas() {
           })
         }
       }
+      actions.push({
+        id: 'toggle-grid-snap',
+        label: dragSnapEnabled
+          ? `Disable Grid Snap (Currently ${dragSnapSize}px)`
+          : `Enable Grid Snap (${dragSnapSize}px)`,
+        shortcut: 'G',
+        category: 'Arrange',
+        onRun: () => toggleDragSnap()
+      })
+      for (const opt of DRAG_SNAP_OPTIONS) {
+        const isCurrent = (dragSnapEnabled ? dragSnapSize : 0) === opt
+        actions.push({
+          id: `set-drag-snap-${opt}`,
+          label: `Set Drag Snap Distance: ${DRAG_SNAP_LABELS[opt].full}${isCurrent ? ' (Active)' : ''}`,
+          category: 'Arrange',
+          onRun: () => setDragSnapOption(opt)
+        })
+      }
     }
     actions.push({
       id: 'fit-view',
@@ -1491,21 +1595,38 @@ function FlowCanvas() {
     autoSaveEnabled,
     handleToggleAutoSave,
     isDarkMode,
-    toggleDarkMode
+    toggleDarkMode,
+    dragSnapEnabled,
+    dragSnapSize,
+    toggleDragSnap,
+    setDragSnapOption
   ])
+
+  const effectiveSnapToGrid = isAltPressed ? !dragSnapEnabled : dragSnapEnabled
+  const harmonizedGap = computeHarmonizedBackgroundGap(canvasTheme, dragSnapEnabled, dragSnapSize)
 
   const bgConfig =
     canvasTheme === 'arcane'
-      ? { variant: BackgroundVariant.Dots, color: '#4f46e5', size: 1.2, gap: 22 }
+      ? { variant: BackgroundVariant.Dots, color: '#4f46e5', size: 1.2, gap: harmonizedGap }
       : canvasTheme === 'parchment'
-        ? { variant: BackgroundVariant.Lines, color: 'rgba(120, 88, 42, 0.14)', size: 1, gap: 32 }
+        ? {
+            variant: BackgroundVariant.Lines,
+            color: 'rgba(120, 88, 42, 0.14)',
+            size: 1,
+            gap: harmonizedGap
+          }
         : canvasTheme === 'corkboard'
-          ? { variant: BackgroundVariant.Dots, color: 'rgba(42, 24, 10, 0.25)', size: 1, gap: 24 }
+          ? {
+              variant: BackgroundVariant.Dots,
+              color: 'rgba(42, 24, 10, 0.25)',
+              size: 1,
+              gap: harmonizedGap
+            }
           : {
               variant: BackgroundVariant.Dots,
               color: isDarkMode ? '#475569' : '#cbd5e1',
               size: 1.2,
-              gap: 16
+              gap: harmonizedGap
             }
 
   const showSidebarInspector =
@@ -1588,10 +1709,13 @@ function FlowCanvas() {
             if (ids.length === 1) {
               const single = useStore.getState().nodes.find((n) => n.id === ids[0])
               if (single && (single.type === 'groupRegion' || single.data?.isGroup)) {
+                const flowPos = screenToFlowPosition({ x: e.clientX, y: e.clientY })
                 setContextMenu({
                   mode: 'group',
                   screenX: e.clientX,
                   screenY: e.clientY,
+                  flowX: flowPos.x,
+                  flowY: flowPos.y,
                   groupId: single.id
                 })
                 return
@@ -1627,11 +1751,15 @@ function FlowCanvas() {
               st.setEdges(st.edges.map((ed) => ({ ...ed, selected: false })))
             }
 
+            const flowPos = screenToFlowPosition({ x: e.clientX, y: e.clientY })
+
             if (node.type === 'groupRegion' || node.data?.isGroup) {
               setContextMenu({
                 mode: 'group',
                 screenX: e.clientX,
                 screenY: e.clientY,
+                flowX: flowPos.x,
+                flowY: flowPos.y,
                 groupId: node.id
               })
               return
@@ -1641,6 +1769,8 @@ function FlowCanvas() {
               mode: 'node',
               screenX: e.clientX,
               screenY: e.clientY,
+              flowX: flowPos.x,
+              flowY: flowPos.y,
               nodeId: node.id
             })
           }}
@@ -1674,8 +1804,7 @@ function FlowCanvas() {
           connectionMode={ConnectionMode.Loose}
           elevateNodesOnSelect={false}
           elevateEdgesOnSelect={false}
-          edgesReconnectable={!isReadOnlyCanvas}
-          reconnectRadius={14}
+          edgesReconnectable={false}
           nodesDraggable={!isReadOnlyCanvas}
           nodesConnectable={!isReadOnlyCanvas}
           zoomOnDoubleClick={isReadOnlyCanvas}
@@ -1683,8 +1812,8 @@ function FlowCanvas() {
           panOnDrag={[1, 2]}
           minZoom={0.05}
           maxZoom={4}
-          snapToGrid={true}
-          snapGrid={[16, 16]}
+          snapToGrid={effectiveSnapToGrid}
+          snapGrid={[dragSnapSize, dragSnapSize]}
           fitView
           proOptions={{ hideAttribution: true }}
           defaultEdgeOptions={{
@@ -2062,6 +2191,42 @@ function FlowCanvas() {
               >
                 <MapIcon size={15} />
               </button>
+
+              {!isReadOnlyCanvas && (
+                <div className="inline-flex items-center rounded-md overflow-hidden border border-slate-200/80 dark:border-slate-600/80 bg-slate-100 dark:bg-slate-700">
+                  <button
+                    type="button"
+                    aria-pressed={dragSnapEnabled}
+                    aria-label="Toggle Grid Snap"
+                    onClick={() => toggleDragSnap()}
+                    title={
+                      dragSnapEnabled
+                        ? `Grid Snap ON (${dragSnapSize}px) · Click or press G for Free drag · Hold Alt while dragging to bypass`
+                        : `Grid Snap OFF (Free 1px) · Click or press G to restore ${dragSnapSize}px snap · Hold Alt while dragging to snap`
+                    }
+                    className={`p-1.5 min-w-6 min-h-6 flex items-center justify-center transition-colors cursor-pointer ${
+                      dragSnapEnabled
+                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                    }`}
+                  >
+                    <Grid3x3 size={14} aria-hidden="true" />
+                  </button>
+                  <select
+                    aria-label="Drag Snap Distance"
+                    value={dragSnapEnabled ? dragSnapSize : 0}
+                    onChange={(e) => setDragSnapOption(Number(e.target.value) as DragSnapOption)}
+                    title="Drag jump & snap distance (Hold Alt while dragging to temporarily invert)"
+                    className="px-1.5 py-1 min-h-6 border-l border-slate-200 dark:border-slate-600 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
+                  >
+                    {DRAG_SNAP_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {DRAG_SNAP_LABELS[opt].short}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5" />
@@ -2488,8 +2653,8 @@ function FlowCanvas() {
               <div>
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs font-bold tracking-tight">Dice Chaos Connections</span>
-                  <span className="px-1.5 py-0.2 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                    Beta
+                  <span className="px-1.5 py-0.2 rounded text-[10px] font-bold tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                    v1.0.0
                   </span>
                 </div>
                 <div className="text-[11px] text-slate-400">
@@ -2505,6 +2670,17 @@ function FlowCanvas() {
                 className="text-amber-300 hover:text-amber-200 underline underline-offset-2 font-semibold"
               >
                 dicechaos.com
+              </a>
+              <span className="text-slate-600" aria-hidden="true">
+                •
+              </span>
+              <a
+                href="https://github.com/dicechaos/DiceChaosDisplay"
+                target="_blank"
+                rel="noreferrer"
+                className="text-sky-300 hover:text-sky-200 underline underline-offset-2"
+              >
+                Dice Chaos Display
               </a>
               <span className="text-slate-600" aria-hidden="true">
                 •
@@ -2554,6 +2730,18 @@ function FlowCanvas() {
               <strong className="text-slate-900 dark:text-white">[ / ] • Ctrl+[ / Ctrl+]</strong>
               <p className="text-slate-500 dark:text-slate-400">
                 Step backward / forward • Send to back / Bring to front
+              </p>
+            </div>
+            <div>
+              <strong className="text-slate-900 dark:text-white">G • Hold Alt + Drag</strong>
+              <p className="text-slate-500 dark:text-slate-400">
+                Toggle grid snap (Free–48px in top bar) • Smooth override mid-drag
+              </p>
+            </div>
+            <div>
+              <strong className="text-slate-900 dark:text-white">Edit / Add Connection Points</strong>
+              <p className="text-slate-500 dark:text-slate-400">
+                Right-click any point to style or move • Alt+Drag to slide • Drag selected line ends
               </p>
             </div>
             <div>

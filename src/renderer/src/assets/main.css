@@ -290,13 +290,72 @@ html.dark .share-tab[aria-selected="true"] {
 .edge-anchor-handle:focus-visible {
   background-color: #2563eb;
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.38), 0 2px 6px rgba(15, 23, 42, 0.45);
-  outline: none;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
 }
 
 .edge-anchor-handle.dragging {
   cursor: grabbing;
   background-color: #1d4ed8;
   box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.48), 0 3px 8px rgba(15, 23, 42, 0.5);
+}
+
+/* Interactive connection perimeter endpoint handle rendered inside <ViewportPortal> above Entity cards (z-index: 3500) */
+.edge-endpoint-handle {
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  box-sizing: border-box;
+  border-radius: 9999px;
+  background-color: #ffffff;
+  border: 2.5px solid #2563eb;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.42);
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: box-shadow 120ms ease, border-color 120ms ease, background-color 120ms ease;
+}
+
+.edge-endpoint-handle.is-custom-port {
+  border-color: #d97706;
+  background-color: #fef3c7;
+}
+
+.edge-endpoint-handle::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 9999px;
+}
+
+@media (pointer: coarse) {
+  .edge-endpoint-handle::after {
+    inset: -16px;
+  }
+}
+
+.edge-endpoint-handle:hover {
+  border-color: #1d4ed8;
+  background-color: #eff6ff;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.4), 0 2px 6px rgba(15, 23, 42, 0.48);
+}
+
+.edge-endpoint-handle:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.35), 0 2px 6px rgba(15, 23, 42, 0.48);
+}
+
+.edge-endpoint-handle.dragging {
+  cursor: grabbing;
+  background-color: #2563eb;
+  border-color: #ffffff;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.52), 0 3px 8px rgba(15, 23, 42, 0.55);
 }
 
 /* Connection label pill: position via individual `translate` + base `scale: 1` identity so hover `scale`
@@ -634,5 +693,42 @@ details.dcc-disclosure:not([open])::details-content {
   .dcc-autosave-thumb {
     background-color: HighlightText;
     forced-color-adjust: none;
+  }
+}
+
+/* ==================== CUSTOM PERIMETER CONNECTION POINTS (Phase 30) ==================== */
+.react-flow__handle.dcc-custom-port {
+  box-sizing: border-box;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.42),
+    0 1px 2px rgba(15, 23, 42, 0.24);
+}
+
+.react-flow__handle.dcc-custom-port.dcc-custom-port-flush {
+  box-shadow: none;
+}
+
+/* Guarantee >= 24x24 CSS px pointer target even on Small (8.5px) or Flush custom ports */
+.react-flow__handle.dcc-custom-port::after {
+  content: "";
+  position: absolute;
+  inset: -9px;
+  border-radius: 9999px;
+}
+
+@media (pointer: coarse) {
+  .react-flow__handle.dcc-custom-port::after {
+    inset: -16px;
+  }
+}
+
+@media (forced-colors: active) {
+  .react-flow__handle.dcc-custom-port {
+    border: 2px solid Highlight !important;
+    outline: 1px solid CanvasText;
+    box-shadow: none;
   }
 }

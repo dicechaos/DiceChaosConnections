@@ -1,4 +1,20 @@
-import { ConnectionPreset, DndEdge, DndNode, EntityNodeData } from '../types'
+import {
+  BuiltinPortId,
+  CanvasTheme,
+  ConnectionPreset,
+  CustomPerimeterPort,
+  CustomPortShape,
+  CustomPortSize,
+  CustomPortVisibility,
+  DndEdge,
+  DndNode,
+  DragSnapOption,
+  DragSnapSize,
+  EntityNodeData,
+  PerimeterAnchor,
+  PerimeterSide
+} from '../types'
+import { normalizeHexColor } from './colorUtils'
 import { resolveEdgeFilterKey } from './edgeFilters'
 
 /**
@@ -777,6 +793,16 @@ export function snapEndpointToNodeBorder(
   } else if (shape === 'group') {
     // 'group' -> rounded-xl (12px)
     rTL = rTR = rBR = rBL = Math.max(0, 12 * s - inset)
+  } else if (shape === 'group:rounded') {
+    rTL = rTR = rBR = rBL = Math.max(0, 16 * s - inset)
+  } else if (shape === 'group:sharp') {
+    rTL = rTR = rBR = rBL = Math.max(0, 6 * s - inset)
+  } else if (shape === 'group:beveled') {
+    rTL = rBR = Math.max(0, 16 * s - inset)
+    rTR = rBL = Math.max(0, 2 * s - inset)
+  } else if (shape === 'group:arch') {
+    rTL = rTR = Math.max(0, 40 * s - inset)
+    rBR = rBL = Math.max(0, 12 * s - inset)
   } else {
     // 'default' -> rounded-lg (8px)
     rTL = rTR = rBR = rBL = Math.max(0, 8 * s - inset)
@@ -850,6 +876,598 @@ export function snapEndpointToNodeBorder(
 }
 
 // ============================================================================
+// CUSTOM PERIMETER PORTS & 360-DEGREE EDGE ENDPOINT PROJECTION ENGINE
+// ============================================================================
+
+export const PERIMETER_SIDES: readonly PerimeterSide[] = ['top', 'right', 'bottom', 'left']
+
+export const PERIMETER_SIDE_LABELS: Record<PerimeterSide, string> = {
+  top: 'Top',
+  right: 'Right',
+  bottom: 'Bottom',
+  left: 'Left'
+}
+
+export const PERIMETER_MIN_OFFSET = 0.05
+export const PERIMETER_MAX_OFFSET = 0.95
+
+export const STANDARD_SIDE_HANDLE_ID: Record<PerimeterSide, 't' | 'r' | 'b' | 'l'> = {
+  top: 't',
+  right: 'r',
+  bottom: 'b',
+  left: 'l'
+}
+
+export function clampPerimeterOffset(offset: number): number {
+  if (!Number.isFinite(offset)) return 0.5
+  const clamped = Math.max(PERIMETER_MIN_OFFSET, Math.min(PERIMETER_MAX_OFFSET, offset))
+  return Math.round(clamped * 10000) / 10000
+}
+
+export function sanitizePerimeterSide(
+  side: unknown,
+  fallback: PerimeterSide = 'top'
+): PerimeterSide {
+  if (side === 'top' || side === 'right' || side === 'bottom' || side === 'left') {
+    return side
+  }
+  return fallback
+}
+
+export interface BuiltinPortSpec {
+  id: BuiltinPortId
+  side: PerimeterSide
+  offset: number
+  defaultLabel: string
+}
+
+export const BUILTIN_PERIMETER_PORTS: readonly BuiltinPortSpec[] = [
+  { id: 't', side: 'top', offset: 0.5, defaultLabel: 'Top' },
+  { id: 'r', side: 'right', offset: 0.5, defaultLabel: 'Right' },
+  { id: 'b', side: 'bottom', offset: 0.5, defaultLabel: 'Bottom' },
+  { id: 'l', side: 'left', offset: 0.5, defaultLabel: 'Left' },
+  { id: 'tl', side: 'top', offset: 0.25, defaultLabel: 'Top-Left' },
+  { id: 'tr', side: 'top', offset: 0.75, defaultLabel: 'Top-Right' },
+  { id: 'bl', side: 'bottom', offset: 0.25, defaultLabel: 'Bottom-Left' },
+  { id: 'br', side: 'bottom', offset: 0.75, defaultLabel: 'Bottom-Right' }
+]
+
+const BUILTIN_PORT_BY_ID: ReadonlyMap<string, BuiltinPortSpec> = new Map(
+  BUILTIN_PERIMETER_PORTS.map((spec) => [spec.id, spec])
+)
+
+export function isBuiltinPerimeterPortId(id: unknown): id is BuiltinPortId {
+  return typeof id === 'string' && BUILTIN_PORT_BY_ID.has(id)
+}
+
+export function getBuiltinPortSpec(id: string | null | undefined): BuiltinPortSpec | undefined {
+  if (!id) return undefined
+  return BUILTIN_PORT_BY_ID.get(id)
+}
+
+export function getDefaultPortStyleForId(
+  id: string,
+  isGroup = false
+): {
+  shape: CustomPortShape
+  size: CustomPortSize
+  visibility: CustomPortVisibility
+} {
+  if (isBuiltinPerimeterPortId(id)) {
+    return {
+      shape: 'circle',
+      size: isGroup ? 'md' : 'sm',
+      visibility: 'hover'
+    }
+  }
+  return {
+    shape: 'diamond',
+    size: 'md',
+    visibility: 'dm'
+  }
+}
+
+export function resolvePortDisplayName(port: CustomPerimeterPort, customIndex?: number): string {
+  if (port.label?.trim()) return port.label.trim()
+  const spec = getBuiltinPortSpec(port.id)
+  if (spec) return spec.defaultLabel
+  return customIndex !== undefined ? `Point ${customIndex + 1}` : 'Custom Point'
+}
+
+export const CUSTOM_PORT_SHAPES: readonly CustomPortShape[] = [
+  'diamond',
+  'circle',
+  'ring',
+  'square',
+  'pill',
+  'none'
+]
+
+export const CUSTOM_PORT_SHAPE_LABELS: Record<CustomPortShape, string> = {
+  diamond: 'Diamond',
+  circle: 'Circle',
+  ring: 'Ring',
+  square: 'Square',
+  pill: 'Bar',
+  none: 'Flush'
+}
+
+export const CUSTOM_PORT_SIZES: readonly CustomPortSize[] = ['sm', 'md', 'lg']
+
+export const CUSTOM_PORT_SIZE_LABELS: Record<CustomPortSize, string> = {
+  sm: 'Small',
+  md: 'Medium',
+  lg: 'Large'
+}
+
+export const CUSTOM_PORT_VISIBILITIES: readonly CustomPortVisibility[] = ['dm', 'hover', 'public']
+
+export const CUSTOM_PORT_VISIBILITY_LABELS: Record<CustomPortVisibility, string> = {
+  dm: 'DM Studio',
+  hover: 'Hover Only',
+  public: 'Public Map'
+}
+
+export function sanitizeCustomPortShape(
+  val: unknown,
+  fallback: CustomPortShape = 'diamond'
+): CustomPortShape {
+  if (
+    val === 'diamond' ||
+    val === 'circle' ||
+    val === 'ring' ||
+    val === 'square' ||
+    val === 'pill' ||
+    val === 'none'
+  ) {
+    return val
+  }
+  return fallback
+}
+
+export function sanitizeCustomPortSize(
+  val: unknown,
+  fallback: CustomPortSize = 'md'
+): CustomPortSize {
+  if (val === 'sm' || val === 'md' || val === 'lg') {
+    return val
+  }
+  return fallback
+}
+
+export function sanitizeCustomPortVisibility(
+  val: unknown,
+  fallback: CustomPortVisibility = 'dm'
+): CustomPortVisibility {
+  if (val === 'dm' || val === 'hover' || val === 'public') {
+    return val
+  }
+  return fallback
+}
+
+export function isBuiltinPortModified(
+  port: CustomPerimeterPort,
+  isGroup = false
+): boolean {
+  const spec = getBuiltinPortSpec(port.id)
+  if (!spec) return false
+  if (port.disabled) return true
+  const defaults = getDefaultPortStyleForId(spec.id, isGroup)
+  if (sanitizePerimeterSide(port.side, spec.side) !== spec.side) return true
+  if (Math.abs(clampPerimeterOffset(port.offset) - spec.offset) > 0.0005) return true
+  if (port.label?.trim()) return true
+  if (sanitizeCustomPortShape(port.shape, defaults.shape) !== defaults.shape) return true
+  if (normalizeHexColor(port.color)) return true
+  if (sanitizeCustomPortSize(port.size, defaults.size) !== defaults.size) return true
+  if (sanitizeCustomPortVisibility(port.visibility, defaults.visibility) !== defaults.visibility) {
+    return true
+  }
+  if (port.showLabel) return true
+  return false
+}
+
+/**
+ * Resolves the unified list of ALL perimeter ports for a node:
+ * - All 8 pre-populated built-in ports (`t`, `r`, `b`, `l`, `tl`, `tr`, `bl`, `br`), merged with any user overrides
+ *   stored in `nodeData.customPorts` (preserving `disabled: true` for inert carrier handles).
+ * - Followed by all user-added `cp-*` custom ports in creation order.
+ */
+export function resolveNodePerimeterPorts(
+  nodeData?: Partial<EntityNodeData>,
+  isGroup = false
+): CustomPerimeterPort[] {
+  const stored = nodeData?.customPorts || []
+  const overrideById = new Map<string, CustomPerimeterPort>()
+  const addedPorts: CustomPerimeterPort[] = []
+
+  for (const raw of stored) {
+    if (!raw || typeof raw.id !== 'string') continue
+    if (isBuiltinPerimeterPortId(raw.id)) {
+      overrideById.set(raw.id, raw)
+    } else if (!raw.disabled) {
+      const defaults = getDefaultPortStyleForId(raw.id, isGroup)
+      addedPorts.push({
+        id: raw.id,
+        side: sanitizePerimeterSide(raw.side, 'right'),
+        offset: clampPerimeterOffset(raw.offset),
+        ...(raw.label?.trim() ? { label: raw.label.trim() } : {}),
+        shape: sanitizeCustomPortShape(raw.shape, defaults.shape),
+        ...(normalizeHexColor(raw.color) ? { color: normalizeHexColor(raw.color) } : {}),
+        size: sanitizeCustomPortSize(raw.size, defaults.size),
+        visibility: sanitizeCustomPortVisibility(raw.visibility, defaults.visibility),
+        ...(raw.showLabel ? { showLabel: true } : {})
+      })
+    }
+  }
+
+  const resolvedBuiltins: CustomPerimeterPort[] = BUILTIN_PERIMETER_PORTS.map((spec) => {
+    const ov = overrideById.get(spec.id)
+    const defaults = getDefaultPortStyleForId(spec.id, isGroup)
+    if (!ov) {
+      return {
+        id: spec.id,
+        side: spec.side,
+        offset: spec.offset,
+        shape: defaults.shape,
+        size: defaults.size,
+        visibility: defaults.visibility
+      }
+    }
+    return {
+      id: spec.id,
+      side: sanitizePerimeterSide(ov.side, spec.side),
+      offset: clampPerimeterOffset(ov.offset ?? spec.offset),
+      ...(ov.label?.trim() ? { label: ov.label.trim() } : {}),
+      shape: sanitizeCustomPortShape(ov.shape, defaults.shape),
+      ...(normalizeHexColor(ov.color) ? { color: normalizeHexColor(ov.color) } : {}),
+      size: sanitizeCustomPortSize(ov.size, defaults.size),
+      visibility: sanitizeCustomPortVisibility(ov.visibility, defaults.visibility),
+      ...(ov.showLabel ? { showLabel: true } : {}),
+      ...(ov.disabled ? { disabled: true } : {})
+    }
+  })
+
+  return [...resolvedBuiltins, ...addedPorts]
+}
+
+/**
+ * Returns all active (non-disabled) perimeter connection points on a node — both pre-populated and user-added.
+ */
+export function resolveActivePerimeterPorts(
+  nodeData?: Partial<EntityNodeData>,
+  isGroup = false
+): CustomPerimeterPort[] {
+  return resolveNodePerimeterPorts(nodeData, isGroup).filter((p) => !p.disabled)
+}
+
+export function hasModifiedBuiltinPorts(
+  nodeData?: Partial<EntityNodeData>,
+  isGroup = false
+): boolean {
+  if (!nodeData?.customPorts || nodeData.customPorts.length === 0) return false
+  return nodeData.customPorts.some(
+    (p) => isBuiltinPerimeterPortId(p.id) && isBuiltinPortModified(p, isGroup)
+  )
+}
+
+export function resolveNodeShapeKey(
+  nodeData?: Partial<EntityNodeData>,
+  isGroup = false
+): string {
+  if (isGroup) {
+    return nodeData?.groupShape ? `group:${nodeData.groupShape}` : 'group:rounded'
+  }
+  return nodeData?.shape || 'default'
+}
+
+export function standardHandleToPerimeterAnchor(
+  handleId: string | null | undefined,
+  fallbackSide: PerimeterSide = 'right'
+): PerimeterAnchor {
+  switch (handleId) {
+    case 't':
+      return { side: 'top', offset: 0.5 }
+    case 'tl':
+      return { side: 'top', offset: 0.25 }
+    case 'tr':
+      return { side: 'top', offset: 0.75 }
+    case 'b':
+      return { side: 'bottom', offset: 0.5 }
+    case 'bl':
+      return { side: 'bottom', offset: 0.25 }
+    case 'br':
+      return { side: 'bottom', offset: 0.75 }
+    case 'l':
+      return { side: 'left', offset: 0.5 }
+    case 'r':
+      return { side: 'right', offset: 0.5 }
+    default:
+      return { side: fallbackSide, offset: 0.5 }
+  }
+}
+
+export function resolveEffectiveEdgePerimeterAnchor(params: {
+  handleId?: string | null
+  explicitAnchor?: PerimeterAnchor | null
+  nodeData?: Partial<EntityNodeData>
+  fallbackSide?: PerimeterSide
+}): {
+  anchor: PerimeterAnchor
+  customPort?: CustomPerimeterPort
+  isExplicitOrCustom: boolean
+} {
+  const { handleId, explicitAnchor, nodeData, fallbackSide = 'right' } = params
+
+  // 1. Explicit per-edge freeform anchors take priority over carrier handles ('t' | 'r' | 'b' | 'l')
+  if (
+    explicitAnchor &&
+    typeof explicitAnchor.offset === 'number' &&
+    Number.isFinite(explicitAnchor.offset)
+  ) {
+    return {
+      anchor: {
+        side: sanitizePerimeterSide(explicitAnchor.side, fallbackSide),
+        offset: clampPerimeterOffset(explicitAnchor.offset)
+      },
+      isExplicitOrCustom: true
+    }
+  }
+
+  // 2. Match against unified perimeter ports (both customized/default built-in ports and added cp-* ports)
+  if (handleId) {
+    const isGroup = Boolean(nodeData?.isGroup)
+    const allPorts = resolveNodePerimeterPorts(nodeData, isGroup)
+    const matchedPort = allPorts.find((p) => p.id === handleId && !p.disabled)
+    if (matchedPort) {
+      const spec = getBuiltinPortSpec(matchedPort.id)
+      const isMovedBuiltin = Boolean(
+        spec &&
+          (matchedPort.side !== spec.side ||
+            Math.abs(matchedPort.offset - spec.offset) > 0.0005)
+      )
+      return {
+        anchor: {
+          side: sanitizePerimeterSide(matchedPort.side, fallbackSide),
+          offset: clampPerimeterOffset(matchedPort.offset)
+        },
+        customPort: matchedPort,
+        isExplicitOrCustom: !spec || isMovedBuiltin
+      }
+    }
+  }
+
+  return {
+    anchor: standardHandleToPerimeterAnchor(handleId, fallbackSide),
+    isExplicitOrCustom: false
+  }
+}
+
+/**
+ * Resolves a normalized `{ side, offset }` perimeter anchor into exact flow coordinates `(x, y)`
+ * along the painted border of any entity shape (`default`, `box`, `sticky`, `pill`, `leaf`, `arch`, `oval`)
+ * or group shape (`group:rounded`, `group:sharp`, `group:beveled`, `group:arch`).
+ */
+export function resolvePerimeterAnchorPoint(
+  anchor: PerimeterAnchor,
+  node: NodeBorderGeometryInput,
+  borderOutsetPx = 0
+): { x: number; y: number; side: PerimeterSide } {
+  const side = sanitizePerimeterSide(anchor.side, 'top')
+  const t = clampPerimeterOffset(anchor.offset)
+  const s = node.scaleFactor && node.scaleFactor > 0 ? node.scaleFactor : 1
+  const cx = node.positionAbsolute.x + node.width / 2
+  const cy = node.positionAbsolute.y + node.height / 2
+  const w = Math.max(2, node.width * s)
+  const h = Math.max(2, node.height * s)
+  const left = cx - w / 2
+  const top = cy - h / 2
+
+  let rawX = cx
+  let rawY = cy
+  if (side === 'top') {
+    rawX = left + w * t
+    rawY = top
+  } else if (side === 'bottom') {
+    rawX = left + w * t
+    rawY = top + h
+  } else if (side === 'left') {
+    rawX = left
+    rawY = top + h * t
+  } else {
+    rawX = left + w
+    rawY = top + h * t
+  }
+
+  const pt = snapEndpointToNodeBorder(rawX, rawY, side, node, borderOutsetPx)
+  return { x: pt.x, y: pt.y, side }
+}
+
+/**
+ * Computes inline CSS positioning for a custom `<Handle>` inside `EntityNode` or `GroupNode`
+ * using unscaled local node coordinates so ports sit directly on curved borders (`oval`, `pill`, `arch`, `leaf`)
+ * without bottom/right half-handle offset drift.
+ */
+export function resolveNodeLocalCustomPortStyle(
+  port: PerimeterAnchor,
+  width: number,
+  height: number,
+  shape?: string
+): {
+  left: string
+  top: string
+  right: 'auto'
+  bottom: 'auto'
+  transform: string
+} {
+  const safeW = Math.max(2, width)
+  const safeH = Math.max(2, height)
+  const pt = resolvePerimeterAnchorPoint(
+    port,
+    {
+      positionAbsolute: { x: 0, y: 0 },
+      width: safeW,
+      height: safeH,
+      shape,
+      scaleFactor: 1
+    },
+    0
+  )
+  const leftPct = Math.round((pt.x / safeW) * 10000) / 100
+  const topPct = Math.round((pt.y / safeH) * 10000) / 100
+  return {
+    left: `${leftPct}%`,
+    top: `${topPct}%`,
+    right: 'auto',
+    bottom: 'auto',
+    transform: 'translate(-50%, -50%)'
+  }
+}
+
+/**
+ * Projects any flow-space coordinate `(flowX, flowY)` onto the nearest perimeter point across all 4 sides
+ * of `node`, with optional magnetic snapping (`25%`, `50%`, `75%` and custom ports on that side).
+ * Pass `magneticSnap: false` (e.g. when holding `Alt`) for smooth continuous `0.05..0.95` sliding.
+ */
+export function projectPointToNodePerimeter(
+  flowX: number,
+  flowY: number,
+  node: NodeBorderGeometryInput,
+  options?: {
+    customPorts?: CustomPerimeterPort[]
+    magneticSnap?: boolean
+    excludePortId?: string
+  }
+): {
+  side: PerimeterSide
+  offset: number
+  x: number
+  y: number
+  matchedPortId?: string
+} {
+  const s = node.scaleFactor && node.scaleFactor > 0 ? node.scaleFactor : 1
+  const cx = node.positionAbsolute.x + node.width / 2
+  const cy = node.positionAbsolute.y + node.height / 2
+  const w = Math.max(2, node.width * s)
+  const h = Math.max(2, node.height * s)
+  const left = cx - w / 2
+  const top = cy - h / 2
+
+  const normDx = Math.abs((flowX - cx) / (w / 2))
+  const normDy = Math.abs((flowY - cy) / (h / 2))
+  const prefersHorizontalNormal = normDx >= normDy
+
+  let bestSide: PerimeterSide = 'top'
+  let bestOffset = 0.5
+  let bestScore = Number.POSITIVE_INFINITY
+
+  for (const side of PERIMETER_SIDES) {
+    const rawOffset =
+      side === 'top' || side === 'bottom'
+        ? clampPerimeterOffset((flowX - left) / w)
+        : clampPerimeterOffset((flowY - top) / h)
+    const candidatePt = resolvePerimeterAnchorPoint({ side, offset: rawOffset }, node, 0)
+    const dist = Math.hypot(flowX - candidatePt.x, flowY - candidatePt.y)
+    const isHorizNormal = side === 'left' || side === 'right'
+    const quadrantTiePenalty = isHorizNormal === prefersHorizontalNormal ? 0 : 0.35
+    const score = dist + quadrantTiePenalty
+    if (score < bestScore) {
+      bestScore = score
+      bestSide = side
+      bestOffset = rawOffset
+    }
+  }
+
+  let finalOffset = bestOffset
+  let matchedPortId: string | undefined
+  const magnetic = options?.magneticSnap !== false
+
+  if (magnetic) {
+    const candidatePorts = (options?.customPorts || []).filter(
+      (p) => !p.disabled && p.side === bestSide && p.id !== options?.excludePortId
+    )
+    let closestPort: CustomPerimeterPort | undefined
+    let closestPortDiff = Number.POSITIVE_INFINITY
+    for (const p of candidatePorts) {
+      const diff = Math.abs(bestOffset - clampPerimeterOffset(p.offset))
+      if (diff <= 0.045 && diff < closestPortDiff) {
+        closestPortDiff = diff
+        closestPort = p
+      }
+    }
+
+    if (closestPort) {
+      finalOffset = clampPerimeterOffset(closestPort.offset)
+      matchedPortId = closestPort.id
+    } else if (options?.customPorts === undefined || Boolean(options?.excludePortId)) {
+      for (const detent of [0.25, 0.5, 0.75]) {
+        if (Math.abs(bestOffset - detent) <= 0.03) {
+          finalOffset = detent
+          break
+        }
+      }
+    }
+  }
+
+  const finalPt = resolvePerimeterAnchorPoint({ side: bestSide, offset: finalOffset }, node, 0)
+  return {
+    side: bestSide,
+    offset: finalOffset,
+    x: finalPt.x,
+    y: finalPt.y,
+    ...(matchedPortId ? { matchedPortId } : {})
+  }
+}
+
+/**
+ * Steps a `PerimeterAnchor` clockwise (`clockwiseDelta > 0`) or counter-clockwise (`clockwiseDelta < 0`)
+ * seamlessly around all 4 corners (`top -> right -> bottom -> left -> top`) with zero dead stops at corners.
+ */
+export function stepPerimeterAnchor(
+  anchor: PerimeterAnchor,
+  clockwiseDelta: number
+): PerimeterAnchor {
+  const span = PERIMETER_MAX_OFFSET - PERIMETER_MIN_OFFSET // 0.90 per side
+  const totalRing = span * 4 // 3.60 around all 4 sides
+  const side = sanitizePerimeterSide(anchor.side, 'top')
+  const clamped = clampPerimeterOffset(anchor.offset)
+
+  // Convert local side offset into clockwise progress [0, span] along that side
+  const sideProgress =
+    side === 'top' || side === 'right'
+      ? clamped - PERIMETER_MIN_OFFSET
+      : PERIMETER_MAX_OFFSET - clamped
+
+  const sideIndex = side === 'top' ? 0 : side === 'right' ? 1 : side === 'bottom' ? 2 : 3
+  const currentPos = sideIndex * span + sideProgress
+  const wrappedPos = (((currentPos + clockwiseDelta) % totalRing) + totalRing) % totalRing
+
+  const nextSideIndex = Math.min(3, Math.floor(wrappedPos / span))
+  const nextProgress = wrappedPos - nextSideIndex * span
+  const nextSide = PERIMETER_SIDES[nextSideIndex]
+  const rawNextOffset =
+    nextSide === 'top' || nextSide === 'right'
+      ? PERIMETER_MIN_OFFSET + nextProgress
+      : PERIMETER_MAX_OFFSET - nextProgress
+
+  return {
+    side: nextSide,
+    offset: clampPerimeterOffset(rawNextOffset)
+  }
+}
+
+export function formatPerimeterAnchorDescription(
+  anchor: PerimeterAnchor,
+  customPortLabel?: string
+): string {
+  const sideLabel = PERIMETER_SIDE_LABELS[sanitizePerimeterSide(anchor.side, 'top')]
+  const pct = Math.round(clampPerimeterOffset(anchor.offset) * 100)
+  if (customPortLabel?.trim()) {
+    return `${customPortLabel.trim()} (${sideLabel} edge, ${pct}%)`
+  }
+  return `${sideLabel} edge, ${pct}%`
+}
+
+// ============================================================================
 // MULTI-SELECT ALIGNMENT, DISTRIBUTION & GRID LAYOUT UTILITIES
 // ============================================================================
 
@@ -896,6 +1514,162 @@ export function resolveNodeSize(n: {
     explicitH ??
     (n.data?.portraitMode === 'card' && n.data?.portrait ? 195 : 88)
   return { w: baseW * scale, h: baseH * scale }
+}
+
+/**
+ * Builds an exact `NodeBorderGeometryInput` from a store `DndNode` using unscaled layout dimensions
+ * `(baseW, baseH)` plus `computeEntityVisualScale`, matching React Flow's `measured` + CSS `scale()` center.
+ */
+export function buildNodeBorderGeometry(
+  node: DndNode,
+  edges: DndEdge[] = []
+): NodeBorderGeometryInput {
+  const isGroup = node.type === 'groupRegion' || Boolean(node.data?.isGroup)
+  if (isGroup) {
+    const w = Math.max(220, node.data?.groupWidth || node.measured?.width || 360)
+    const h = Math.max(150, node.data?.groupHeight || node.measured?.height || 240)
+    return {
+      positionAbsolute: node.position,
+      width: w,
+      height: h,
+      shape: resolveNodeShapeKey(node.data, true),
+      scaleFactor: 1
+    }
+  }
+
+  const { width: customW, height: customH } = resolveEntityExplicitSize(node.data)
+  const explicitW =
+    customW ??
+    (typeof (node as any).width === 'number'
+      ? (node as any).width
+      : typeof (node as any).style?.width === 'number'
+        ? (node as any).style.width
+        : undefined)
+  const explicitH =
+    customH ??
+    (typeof (node as any).height === 'number'
+      ? (node as any).height
+      : typeof (node as any).style?.height === 'number'
+        ? (node as any).style.height
+        : undefined)
+  const baseW = customW ?? node.measured?.width ?? explicitW ?? 225
+  const baseH =
+    customH ??
+    node.measured?.height ??
+    explicitH ??
+    (node.data?.portraitMode === 'card' && node.data?.portrait ? 195 : 88)
+
+  return {
+    positionAbsolute: node.position,
+    width: baseW,
+    height: baseH,
+    shape: resolveNodeShapeKey(node.data, false),
+    scaleFactor: computeEntityVisualScale(node.id, node.data, node.selected, edges)
+  }
+}
+
+/**
+ * Resolves the exact border endpoint coordinate `(x, y)` for either end (`source` or `target`) of an edge
+ * so curve waypoint insertion and Sidebar default waypoint placement respect custom ports and anchors.
+ */
+export function resolveEdgeEndpointPoint(
+  edge: DndEdge,
+  which: 'source' | 'target',
+  nodes: DndNode[],
+  edges: DndEdge[]
+): { x: number; y: number } {
+  const endpointId = which === 'source' ? edge.source : edge.target
+  if (endpointId.startsWith('proxy-')) {
+    return resolveEdgeEndpointCenter(endpointId, nodes, edges)
+  }
+  const node = nodes.find((n) => n.id === endpointId)
+  if (!node) return { x: 0, y: 0 }
+
+  const geom = buildNodeBorderGeometry(node, edges)
+  const handleId = which === 'source' ? edge.sourceHandle : edge.targetHandle
+  const explicitAnchor = which === 'source' ? edge.data?.sourceAnchor : edge.data?.targetAnchor
+  const fallbackSide: PerimeterSide = which === 'source' ? 'right' : 'left'
+  const { anchor } = resolveEffectiveEdgePerimeterAnchor({
+    handleId,
+    explicitAnchor,
+    nodeData: node.data,
+    fallbackSide
+  })
+  const pt = resolvePerimeterAnchorPoint(anchor, geom, 0)
+  return { x: pt.x, y: pt.y }
+}
+
+/**
+ * Hit-tests `(flowX, flowY)` during an interactive edge-endpoint drag to determine whether the user is
+ * sliding along the `currentAttachmentNodeId` or dragging onto a different connectable entity/group.
+ * - Keeps attachment on `currentAttachmentNodeId` while near its border unless hovering directly inside another entity.
+ * - Group regions match along their border/header band (`<= 28px`) so hollow group interiors never hijack member drags.
+ */
+export function findConnectableNodeAtPoint(
+  flowX: number,
+  flowY: number,
+  nodes: DndNode[],
+  edges: DndEdge[],
+  options?: {
+    currentAttachmentNodeId?: string
+    disallowNodeId?: string
+    hideSecrets?: boolean
+  }
+): DndNode | null {
+  const hideSecrets = Boolean(options?.hideSecrets)
+  const candidates = nodes.filter((n) => {
+    if ((n.type as string) === 'edgeProxy') return false
+    if (options?.disallowNodeId && n.id === options.disallowNodeId) return false
+    if (hideSecrets && n.data?.isHidden) return false
+    return true
+  })
+
+  // 1. Check non-group entity cards from frontmost (end of array) to backmost
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const n = candidates[i]
+    if (n.type === 'groupRegion' || n.data?.isGroup) continue
+    if (n.id === options?.currentAttachmentNodeId) continue
+    const geom = buildNodeBorderGeometry(n, edges)
+    const s = geom.scaleFactor || 1
+    const cx = geom.positionAbsolute.x + geom.width / 2
+    const cy = geom.positionAbsolute.y + geom.height / 2
+    const halfW = (geom.width * s) / 2 + 12
+    const halfH = (geom.height * s) / 2 + 12
+    if (Math.abs(flowX - cx) <= halfW && Math.abs(flowY - cy) <= halfH) {
+      return n
+    }
+  }
+
+  // 2. If cursor is still reasonably near the current node's perimeter (<= 48px), stay on current node
+  if (options?.currentAttachmentNodeId) {
+    const current = candidates.find((n) => n.id === options.currentAttachmentNodeId)
+    if (current) {
+      const geom = buildNodeBorderGeometry(current, edges)
+      const proj = projectPointToNodePerimeter(flowX, flowY, geom, { magneticSnap: false })
+      if (Math.hypot(flowX - proj.x, flowY - proj.y) <= 48) {
+        return current
+      }
+    }
+  }
+
+  // 3. Check Group Region containers along their perimeter band (<= 28px from group border)
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const n = candidates[i]
+    if (n.type !== 'groupRegion' && !n.data?.isGroup) continue
+    const geom = buildNodeBorderGeometry(n, edges)
+    const proj = projectPointToNodePerimeter(flowX, flowY, geom, { magneticSnap: false })
+    if (Math.hypot(flowX - proj.x, flowY - proj.y) <= 28) {
+      return n
+    }
+  }
+
+  // 4. Fallback to currentAttachmentNodeId so dragging into empty space still orbits the attached card smoothly
+  if (options?.currentAttachmentNodeId) {
+    const current = candidates.find((n) => n.id === options.currentAttachmentNodeId)
+    if (current) return current
+  }
+
+  return null
 }
 
 export function isNodeEffectivelyLocked(
@@ -1296,4 +2070,70 @@ export function reorderNodesByTier(
   }
 
   return nextNodes
+}
+
+// ============================================================================
+// DRAG SNAP / GRID STEP HELPERS & BACKGROUND HARMONIZATION
+// ============================================================================
+
+export const DRAG_SNAP_SIZES: readonly DragSnapSize[] = [4, 8, 16, 24, 32, 48]
+export const DRAG_SNAP_OPTIONS: readonly DragSnapOption[] = [0, 4, 8, 16, 24, 32, 48]
+export const DEFAULT_DRAG_SNAP_SIZE: DragSnapSize = 16
+export const DRAG_SNAP_ENABLED_STORAGE_KEY = 'dcc:drag-snap-enabled'
+export const DRAG_SNAP_SIZE_STORAGE_KEY = 'dcc:drag-snap-size'
+
+export const DRAG_SNAP_LABELS: Record<DragSnapOption, { short: string; full: string }> = {
+  0: { short: 'Free', full: 'Free (Smooth 1px)' },
+  4: { short: '4px', full: '4px (Micro)' },
+  8: { short: '8px', full: '8px (Fine)' },
+  16: { short: '16px', full: '16px (Standard)' },
+  24: { short: '24px', full: '24px (Medium)' },
+  32: { short: '32px', full: '32px (Large)' },
+  48: { short: '48px', full: '48px (Coarse)' }
+}
+
+export function sanitizeDragSnapSize(raw: unknown): DragSnapSize {
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN
+  if ((DRAG_SNAP_SIZES as readonly number[]).includes(n)) {
+    return n as DragSnapSize
+  }
+  return DEFAULT_DRAG_SNAP_SIZE
+}
+
+export function snapCoordinateToStep(
+  value: number,
+  enabled: boolean,
+  stepSize: DragSnapSize
+): number {
+  if (!enabled || !Number.isFinite(stepSize) || stepSize <= 1) {
+    return Math.round(value)
+  }
+  return Math.round(value / stepSize) * stepSize
+}
+
+/**
+ * Computes the visual `<Background gap={...}>` for the active canvas theme so that:
+ * - When grid snap is OFF (`Free`), each theme keeps its signature aesthetic spacing.
+ * - When grid snap is ON, visible dots/lines use a clean integer multiple of `stepSize`
+ *   (avoiding dense Moiré dot clutter at 4px/8px while ensuring snapped positions align with the grid).
+ */
+export function computeHarmonizedBackgroundGap(
+  theme: CanvasTheme,
+  snapEnabled: boolean,
+  stepSize: DragSnapSize
+): number {
+  const themeDefaultGap =
+    theme === 'arcane' ? 22 : theme === 'parchment' ? 32 : theme === 'corkboard' ? 24 : 16
+  if (!snapEnabled) return themeDefaultGap
+
+  if (stepSize === 4) {
+    return theme === 'parchment' ? 32 : theme === 'corkboard' ? 24 : 16
+  }
+  if (stepSize === 8) {
+    return theme === 'parchment' ? 32 : theme === 'corkboard' || theme === 'arcane' ? 24 : 16
+  }
+  if (stepSize === 16) {
+    return theme === 'parchment' ? 32 : 16
+  }
+  return stepSize
 }

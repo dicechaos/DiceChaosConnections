@@ -4,6 +4,45 @@ export type EntityType = string
 
 export type CanvasTheme = 'modern' | 'arcane' | 'parchment' | 'corkboard'
 
+export type DragSnapSize = 4 | 8 | 16 | 24 | 32 | 48
+
+export type DragSnapOption = 0 | DragSnapSize
+
+export type PerimeterSide = 'top' | 'right' | 'bottom' | 'left'
+
+export interface PerimeterAnchor {
+  side: PerimeterSide
+  /** Normalized offset along the side: left->right for top/bottom, top->bottom for left/right (clamped 0.05..0.95) */
+  offset: number
+}
+
+export type BuiltinPortId = 't' | 'r' | 'b' | 'l' | 'tl' | 'tr' | 'bl' | 'br'
+
+export type CustomPortShape = 'diamond' | 'circle' | 'ring' | 'square' | 'pill' | 'none'
+
+export type CustomPortSize = 'sm' | 'md' | 'lg'
+
+export type CustomPortVisibility = 'dm' | 'hover' | 'public'
+
+export interface CustomPerimeterPort {
+  id: string
+  side: PerimeterSide
+  offset: number
+  label?: string
+  /** Visual marker shape on the border ('circle' for pre-populated points, 'diamond' for added points) */
+  shape?: CustomPortShape
+  /** Hex color override (#rrggbb), or undefined to match the entity/group border */
+  color?: string
+  /** Visual marker size while keeping >=24x24px AA hit target */
+  size?: CustomPortSize
+  /** Visibility rule: 'dm', 'hover' (default for pre-populated points), or 'public' (also shown in Player View & Exports) */
+  visibility?: CustomPortVisibility
+  /** Render `label` as a compact micro-badge beside the port on the border */
+  showLabel?: boolean
+  /** True when a pre-populated built-in port has been removed/hidden by the user */
+  disabled?: boolean
+}
+
 export type CampaignEdition = 'dm' | 'player'
 
 export type DossierFormat = 'markdown' | 'obsidian' | 'pdf'
@@ -129,6 +168,7 @@ export type EntityNodeData = {
   baseScale?: number
   entityWidth?: number
   entityHeight?: number
+  customPorts?: CustomPerimeterPort[]
   // Group Region & Lock properties
   isGroup?: boolean
   groupId?: string
@@ -169,6 +209,8 @@ export type DndEdgeData = {
   waypoints?: { id: string; x: number; y: number }[]
   thickness?: number
   labelPos?: { x: number; y: number }
+  sourceAnchor?: PerimeterAnchor | null
+  targetAnchor?: PerimeterAnchor | null
   // Transient runtime flags (never saved to disk)
   isSearchFaded?: boolean
   isDegreeFaded?: boolean

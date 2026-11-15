@@ -1,11 +1,52 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useStore } from '../store/useStore'
-import { PartyDisposition } from '../types'
+import {
+  BuiltinPortId,
+  CustomPortSize,
+  CustomPortVisibility,
+  DragSnapOption,
+  PartyDisposition,
+  PerimeterSide
+} from '../types'
 import { GROUP_TINT_PALETTE, resolveGroupTint } from './nodes/GroupNode'
-import { ENTITY_BG_SWATCHES, isHexColorDark, normalizeHexColor } from '../utils/colorUtils'
-import { getNodeStackBounds, tidySelectedNodesGrid } from '../utils/graphPipeline'
+import { PortShapePreviewGlyph } from './nodes/CustomPerimeterHandles'
+import {
+  CUSTOM_PORT_SWATCHES,
+  ENTITY_BG_SWATCHES,
+  isHexColorDark,
+  normalizeHexColor,
+  resolveDefaultNodePortAccent
+} from '../utils/colorUtils'
+import {
+  buildNodeBorderGeometry,
+  CUSTOM_PORT_SHAPES,
+  CUSTOM_PORT_SHAPE_LABELS,
+  CUSTOM_PORT_SIZES,
+  CUSTOM_PORT_SIZE_LABELS,
+  CUSTOM_PORT_VISIBILITIES,
+  CUSTOM_PORT_VISIBILITY_LABELS,
+  DRAG_SNAP_LABELS,
+  DRAG_SNAP_OPTIONS,
+  formatPerimeterAnchorDescription,
+  getDefaultPortStyleForId,
+  getNodeStackBounds,
+  hasModifiedBuiltinPorts,
+  isBuiltinPerimeterPortId,
+  isBuiltinPortModified,
+  isNodeEffectivelyLocked,
+  PERIMETER_SIDES,
+  PERIMETER_SIDE_LABELS,
+  projectPointToNodePerimeter,
+  resolveActivePerimeterPorts,
+  resolvePortDisplayName,
+  sanitizeCustomPortShape,
+  sanitizeCustomPortSize,
+  sanitizeCustomPortVisibility,
+  tidySelectedNodesGrid
+} from '../utils/graphPipeline'
 import {
   Plus,
+  CircleDot,
   Copy,
   ClipboardPaste,
   Files,
@@ -39,6 +80,8 @@ export type ContextMenuState =
       mode: 'node'
       screenX: number
       screenY: number
+      flowX?: number
+      flowY?: number
       nodeId: string
     }
   | {
@@ -51,6 +94,8 @@ export type ContextMenuState =
       mode: 'group'
       screenX: number
       screenY: number
+      flowX?: number
+      flowY?: number
       groupId: string
     }
   | {
@@ -77,6 +122,13 @@ export type ContextMenuState =
       sourceNodeId: string
       sourceHandleId?: string | null
       isFromTargetHandle?: boolean
+    }
+  | {
+      mode: 'custom-port'
+      screenX: number
+      screenY: number
+      nodeId: string
+      portId: string
     }
 
 interface ContextMenuProps {
@@ -131,6 +183,8 @@ export default function ContextMenu({
 
   const {
     campaignEdition,
+    canvasTheme,
+    isDarkMode,
     nodes,
     edges,
     clipboard,
@@ -154,11 +208,20 @@ export default function ContextMenu({
     assignNodesToGroup,
     updateEdgeData,
     reverseEdgeDirection,
+    addCustomPort,
+    updateCustomPort,
+    removeCustomPort,
+    resetBuiltinPorts,
+    applyPortStyleToAllNodePorts,
+    resetEdgeEndpointAnchors,
     addWaypoint,
     clearWaypoints,
     copySelection,
     pasteClipboard,
-    duplicateSelection
+    duplicateSelection,
+    dragSnapEnabled,
+    dragSnapSize,
+    setDragSnapOption
   } = useStore()
 
   // Sync popover open/close with `menu` state and position against zero-size anchor
@@ -414,7 +477,359 @@ export default function ContextMenu({
   let widthClass = 'w-56'
   let bodyContent: React.ReactNode = null
 
-  if (menu?.mode === 'connect-end') {
+  if (menu?.mode === 'custom-port') {
+    const targetNode = nodes.find((n) => n.id === menu.nodeId)
+    const isGroupTarget = Boolean(
+      targetNode && (targetNode.type === 'groupRegion' || targetNode.data?.isGroup)
+    )
+    const activePorts = targetNode
+      ? resolveActivePerimeterPorts(targetNode.data, isGroupTarget)
+      : []
+    const port = activePorts.find((p) => p.id === menu.portId)
+    if (targetNode && port) {
+      menuLabel = 'Connection Point Options'
+      widthClass = 'w-64'
+      const nodeById = new Map(nodes.map((n) => [n.id, n]))
+      const canEditPort =
+        !isNodeEffectivelyLocked(targetNode, nodeById) &&
+        (!isPlayerEdition || Boolean(targetNode.data?.isPlayerCreated))
+      const isDarkSurface =
+        canvasTheme === 'arcane' || (canvasTheme === 'modern' && isDarkMode)
+      const customCategory = customEntityTypes.find((c) => c.label === targetNode.data?.entityType)
+      const defaultPortAccent = isGroupTarget
+        ? resolveGroupTint(targetNode.data?.groupColor, targetNode.data?.groupCustomColor).swatchHex
+        : resolveDefaultNodePortAccent({
+            entityType: targetNode.data?.entityType,
+            customCategoryColor: customCategory?.color,
+            isDarkSurface: targetNode.data?.bgColor
+              ? isHexColorDark(targetNode.data.bgColor)
+              : isDarkSurface
+          })
+      const defaults = getDefaultPortStyleForId(port.id, isGroupTarget)
+      const portShape = sanitizeCustomPortShape(port.shape, defaults.shape)
+      const portSize = sanitizeCustomPortSize(port.size, defaults.size)
+      const portVis = sanitizeCustomPortVisibility(port.visibility, defaults.visibility)
+      const customPortHex = normalizeHexColor(port.color)
+      const resolvedPortColor = customPortHex || defaultPortAccent
+      const displayName = resolvePortDisplayName(port)
+      const pct = Math.round(port.offset * 100)
+      const isBuiltin = isBuiltinPerimeterPortId(port.id)
+      const canResetBuiltin = isBuiltin && isBuiltinPortModified(port, isGroupTarget)
+
+      bodyContent = (
+        <>
+          <div className="px-3 py-1.5 flex items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-700/70">
+            <span className="flex items-center gap-1.5 min-w-0">
+              <PortShapePreviewGlyph
+                shape={portShape}
+                color={resolvedPortColor}
+                isDark={isDarkMode}
+              />
+              <span className="text-[11px] font-bold text-slate-800 dark:text-slate-100 truncate">
+                {displayName}
+              </span>
+              {isBuiltin && (
+                <span className="px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-[9px] font-semibold text-slate-500 dark:text-slate-400 shrink-0">
+                  Default
+                </span>
+              )}
+            </span>
+            <span className="text-[10px] font-mono text-slate-400 shrink-0">
+              {PERIMETER_SIDE_LABELS[port.side]} {pct}%
+            </span>
+          </div>
+
+          {/* Side & Position Controls */}
+          <div className="px-3 py-1.5 flex flex-col gap-1.5 border-b border-slate-100 dark:border-slate-700/70">
+            <div className="grid grid-cols-4 gap-1">
+              {PERIMETER_SIDES.map((s: PerimeterSide) => {
+                const activeSide = port.side === s
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    disabled={!canEditPort}
+                    aria-pressed={activeSide}
+                    onClick={() => updateCustomPort(targetNode.id, port.id, { side: s }, true)}
+                    className={`py-0.5 min-h-6 rounded border text-[10px] font-semibold transition-colors cursor-pointer disabled:opacity-40 ${
+                      activeSide
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-slate-50 dark:bg-slate-900/80 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    {PERIMETER_SIDE_LABELS[s]}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="dcc-ctx-port-pos"
+                className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 shrink-0"
+              >
+                Pos
+              </label>
+              <input
+                id="dcc-ctx-port-pos"
+                type="range"
+                min="5"
+                max="95"
+                step="1"
+                disabled={!canEditPort}
+                value={pct}
+                style={{ accentColor: resolvedPortColor }}
+                onPointerDown={(e) => {
+                  e.stopPropagation()
+                  useStore.getState().pushHistory(true)
+                }}
+                onChange={(e) =>
+                  updateCustomPort(
+                    targetNode.id,
+                    port.id,
+                    { offset: parseInt(e.target.value, 10) / 100 },
+                    false
+                  )
+                }
+                className="flex-1 cursor-pointer h-1.5"
+              />
+              <span className="text-[10px] font-mono font-semibold text-slate-600 dark:text-slate-300 w-8 text-right">
+                {pct}%
+              </span>
+            </div>
+          </div>
+
+          {/* Shape Grid */}
+          <div className="px-3 py-1.5 flex flex-col gap-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              Shape
+            </span>
+            <div className="grid grid-cols-3 gap-1">
+              {CUSTOM_PORT_SHAPES.map((sh) => {
+                const active = portShape === sh
+                return (
+                  <button
+                    key={sh}
+                    type="button"
+                    disabled={!canEditPort}
+                    aria-pressed={active}
+                    onClick={() => updateCustomPort(targetNode.id, port.id, { shape: sh }, true)}
+                    className={`px-1.5 py-1 min-h-6 rounded border text-[10px] font-semibold inline-flex items-center justify-center gap-1 transition-colors cursor-pointer disabled:opacity-40 ${
+                      active
+                        ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-500 text-blue-700 dark:text-blue-200'
+                        : 'bg-slate-50 dark:bg-slate-900/80 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    <PortShapePreviewGlyph
+                      shape={sh}
+                      color={resolvedPortColor}
+                      isDark={isDarkMode}
+                    />
+                    <span>{CUSTOM_PORT_SHAPE_LABELS[sh]}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Size & Visibility */}
+          <div className="px-3 py-1.5 flex flex-col gap-1.5 border-t border-slate-100 dark:border-slate-700/70">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Size
+              </span>
+              <div className="inline-flex items-center gap-1">
+                {CUSTOM_PORT_SIZES.map((sz: CustomPortSize) => {
+                  const active = portSize === sz
+                  return (
+                    <button
+                      key={sz}
+                      type="button"
+                      disabled={!canEditPort}
+                      aria-pressed={active}
+                      onClick={() => updateCustomPort(targetNode.id, port.id, { size: sz }, true)}
+                      className={`px-2 py-0.5 min-h-6 rounded border text-[10px] font-bold transition-colors cursor-pointer disabled:opacity-40 ${
+                        active
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-slate-50 dark:bg-slate-900/80 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {CUSTOM_PORT_SIZE_LABELS[sz]}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Visibility
+              </span>
+              <div className="grid grid-cols-3 gap-1">
+                {CUSTOM_PORT_VISIBILITIES.map((vis: CustomPortVisibility) => {
+                  const active = portVis === vis
+                  return (
+                    <button
+                      key={vis}
+                      type="button"
+                      disabled={!canEditPort}
+                      aria-pressed={active}
+                      title={CUSTOM_PORT_VISIBILITY_LABELS[vis]}
+                      onClick={() =>
+                        updateCustomPort(targetNode.id, port.id, { visibility: vis }, true)
+                      }
+                      className={`px-1.5 py-1 min-h-6 rounded border text-[10px] font-semibold transition-colors cursor-pointer disabled:opacity-40 ${
+                        active
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-slate-50 dark:bg-slate-900/80 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {vis === 'dm' ? 'DM Only' : vis === 'hover' ? 'On Hover' : 'Public'}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Color Swatches */}
+          <div className="px-3 py-1.5 flex flex-col gap-1.5 border-t border-slate-100 dark:border-slate-700/70">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Color
+              </span>
+              <button
+                type="button"
+                disabled={!canEditPort}
+                aria-pressed={!customPortHex}
+                onClick={() =>
+                  updateCustomPort(targetNode.id, port.id, { color: undefined }, true)
+                }
+                className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-40 ${
+                  !customPortHex
+                    ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-500 text-blue-700 dark:text-blue-200'
+                    : 'bg-slate-50 dark:bg-slate-900/80 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{ backgroundColor: defaultPortAccent }}
+                  className="dcc-color-swatch w-2.5 h-2.5 rounded-full border border-black/20 dark:border-white/30"
+                />
+                <span>Match Border</span>
+              </button>
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {CUSTOM_PORT_SWATCHES.map((sw) => {
+                const selectedSwatch = customPortHex === sw.hex
+                return (
+                  <button
+                    key={sw.key}
+                    type="button"
+                    disabled={!canEditPort}
+                    aria-label={sw.label}
+                    aria-pressed={selectedSwatch}
+                    title={sw.label}
+                    onClick={() =>
+                      updateCustomPort(targetNode.id, port.id, { color: sw.hex }, true)
+                    }
+                    style={{ backgroundColor: sw.hex }}
+                    className={`dcc-color-swatch w-5 h-5 rounded-full border inline-flex items-center justify-center transition-transform cursor-pointer disabled:opacity-40 ${
+                      selectedSwatch
+                        ? 'border-slate-900 dark:border-white scale-110 ring-2 ring-blue-500/60'
+                        : 'border-slate-400/70 dark:border-slate-600 hover:scale-105'
+                    }`}
+                  >
+                    {selectedSwatch && (
+                      <Check
+                        size={11}
+                        strokeWidth={3}
+                        aria-hidden="true"
+                        className="text-white drop-shadow"
+                      />
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <hr className="my-1 border-slate-200 dark:border-slate-700" />
+          <button
+            type="button"
+            disabled={!canEditPort}
+            aria-pressed={Boolean(port.showLabel)}
+            onClick={() =>
+              updateCustomPort(
+                targetNode.id,
+                port.id,
+                { showLabel: !port.showLabel },
+                true
+              )
+            }
+            className={itemClass}
+          >
+            <span className="flex items-center gap-2">
+              <Eye size={13} className="text-blue-500" />
+              <span>Show Label Badge on Border</span>
+            </span>
+            {port.showLabel && <Check size={12} className="text-blue-600 dark:text-blue-400" />}
+          </button>
+
+          {activePorts.length > 1 && (
+            <button
+              type="button"
+              disabled={!canEditPort}
+              onClick={() => {
+                applyPortStyleToAllNodePorts(targetNode.id, port.id)
+                onClose()
+              }}
+              className={itemClass}
+            >
+              <span className="flex items-center gap-2">
+                <Sparkles size={13} className="text-amber-500" />
+                <span>Apply Style to All Points</span>
+              </span>
+            </button>
+          )}
+
+          {canResetBuiltin && (
+            <button
+              type="button"
+              disabled={!canEditPort}
+              onClick={() => {
+                resetBuiltinPorts(targetNode.id, port.id as BuiltinPortId)
+                onClose()
+              }}
+              className={itemClass}
+            >
+              <span className="flex items-center gap-2">
+                <RotateCcw size={13} className="text-amber-500" />
+                <span>Reset Point to Default</span>
+              </span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            disabled={!canEditPort}
+            onClick={() => {
+              removeCustomPort(targetNode.id, port.id)
+              onClose()
+            }}
+            className="w-full px-3 py-1.5 text-left text-xs font-semibold flex items-center justify-between gap-3 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 focus-visible:bg-red-50 dark:focus-visible:bg-red-950/40 outline-none transition-colors cursor-pointer disabled:opacity-40"
+          >
+            <span className="flex items-center gap-2">
+              <Trash2 size={13} />
+              <span>Remove Connection Point</span>
+            </span>
+            <span className="text-[10px] opacity-75" aria-hidden="true">
+              Alt+Click
+            </span>
+          </button>
+        </>
+      )
+    }
+  } else if (menu?.mode === 'connect-end') {
     menuLabel = 'Create and Connect Entity'
     const allTypes = [
       ...QUICK_ENTITY_TYPES,
@@ -1005,6 +1420,60 @@ export default function ContextMenu({
                   {renderStackingMenuItems([menu.groupId], 'group')}
                 </>
               )}
+              {!isLocked && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const geom = buildNodeBorderGeometry(groupNode, edges)
+                    const created =
+                      menu.flowX !== undefined && menu.flowY !== undefined
+                        ? (() => {
+                            const proj = projectPointToNodePerimeter(
+                              menu.flowX,
+                              menu.flowY,
+                              geom,
+                              {
+                                magneticSnap: false
+                              }
+                            )
+                            return addCustomPort(menu.groupId, {
+                              side: proj.side,
+                              offset: proj.offset
+                            })
+                          })()
+                        : addCustomPort(menu.groupId)
+                    if (created) {
+                      window.dispatchEvent(
+                        new CustomEvent('dcc:announce', {
+                          detail: {
+                            message: `Added connection point on ${formatPerimeterAnchorDescription(created)}`
+                          }
+                        })
+                      )
+                    }
+                    onClose()
+                  }}
+                  className={itemClass}
+                >
+                  <span className="flex items-center gap-2">
+                    <CircleDot size={13} className="text-amber-500" /> Add Connection Point on Edge
+                  </span>
+                </button>
+              )}
+              {!isLocked && hasModifiedBuiltinPorts(groupNode.data, true) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetBuiltinPorts(menu.groupId)
+                    onClose()
+                  }}
+                  className={itemClass}
+                >
+                  <span className="flex items-center gap-2">
+                    <RotateCcw size={13} className="text-amber-500" /> Restore Default Connection Points
+                  </span>
+                </button>
+              )}
               <hr className="my-1 border-slate-200 dark:border-slate-700" />
             </>
           )}
@@ -1280,6 +1749,62 @@ export default function ContextMenu({
               <hr className="my-1 border-slate-200 dark:border-slate-700" />
               {renderStackingMenuItems([menu.nodeId], 'entity')}
               <hr className="my-1 border-slate-200 dark:border-slate-700" />
+              {!isLocked && !parentGroup?.data?.isLocked && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const geom = buildNodeBorderGeometry(targetNode, edges)
+                    const created =
+                      menu.flowX !== undefined && menu.flowY !== undefined
+                        ? (() => {
+                            const proj = projectPointToNodePerimeter(
+                              menu.flowX,
+                              menu.flowY,
+                              geom,
+                              {
+                                magneticSnap: false
+                              }
+                            )
+                            return addCustomPort(menu.nodeId, {
+                              side: proj.side,
+                              offset: proj.offset
+                            })
+                          })()
+                        : addCustomPort(menu.nodeId)
+                    if (created) {
+                      window.dispatchEvent(
+                        new CustomEvent('dcc:announce', {
+                          detail: {
+                            message: `Added connection point on ${formatPerimeterAnchorDescription(created)}`
+                          }
+                        })
+                      )
+                    }
+                    onClose()
+                  }}
+                  className={itemClass}
+                >
+                  <span className="flex items-center gap-2">
+                    <CircleDot size={13} className="text-amber-500" /> Add Connection Point on Edge
+                  </span>
+                </button>
+              )}
+              {!isLocked &&
+                !parentGroup?.data?.isLocked &&
+                hasModifiedBuiltinPorts(targetNode.data, false) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetBuiltinPorts(menu.nodeId)
+                      onClose()
+                    }}
+                    className={itemClass}
+                  >
+                    <span className="flex items-center gap-2">
+                      <RotateCcw size={13} className="text-amber-500" /> Restore Default Connection Points
+                    </span>
+                  </button>
+                )}
               <button
                 type="button"
                 onClick={() => {
@@ -1439,6 +1964,12 @@ export default function ContextMenu({
       menuLabel = `Actions for ${targetEdge.data?.label || 'Connection'}`
       const isHidden = Boolean(targetEdge.data?.isHidden)
       const hasWaypoints = Boolean(targetEdge.data?.waypoints?.length)
+      const hasCustomEndpoints = Boolean(
+        targetEdge.data?.sourceAnchor ||
+          targetEdge.data?.targetAnchor ||
+          targetEdge.sourceHandle?.startsWith('cp-') ||
+          targetEdge.targetHandle?.startsWith('cp-')
+      )
       const canModifyEdge = !isPlayerEdition || Boolean(targetEdge.data?.isPlayerCreated)
       bodyContent = (
         <>
@@ -1496,6 +2027,20 @@ export default function ContextMenu({
                 >
                   <span className="flex items-center gap-2">
                     <RotateCcw size={13} /> Reset Curve Routing
+                  </span>
+                </button>
+              )}
+              {hasCustomEndpoints && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetEdgeEndpointAnchors(menu.edgeId)
+                    onClose()
+                  }}
+                  className={itemClass}
+                >
+                  <span className="flex items-center gap-2">
+                    <RotateCcw size={13} /> Reset Endpoint Positions
                   </span>
                 </button>
               )}
@@ -1646,6 +2191,42 @@ export default function ContextMenu({
             <Maximize2 size={13} /> Fit Entire Map
           </span>
         </button>
+        <hr className="my-1 border-slate-200 dark:border-slate-700" />
+        <div className="px-3 py-1.5 flex flex-col gap-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              Drag Snap
+            </span>
+            <span className="text-[10px] text-slate-400" aria-hidden="true">
+              G · Alt-Drag
+            </span>
+          </div>
+          <div className="grid grid-cols-4 gap-1">
+            {DRAG_SNAP_OPTIONS.map((opt: DragSnapOption) => {
+              const activeOpt: DragSnapOption = dragSnapEnabled ? dragSnapSize : 0
+              const isSelected = activeOpt === opt
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  aria-pressed={isSelected}
+                  title={`Set drag jump distance to ${DRAG_SNAP_LABELS[opt].full}`}
+                  onClick={() => {
+                    setDragSnapOption(opt)
+                    onClose()
+                  }}
+                  className={`px-1.5 py-1 min-h-6 rounded text-[11px] font-semibold transition-colors cursor-pointer ${
+                    isSelected
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600'
+                  }`}
+                >
+                  {DRAG_SNAP_LABELS[opt].short}
+                </button>
+              )
+            })}
+          </div>
+        </div>
       </>
     )
   }

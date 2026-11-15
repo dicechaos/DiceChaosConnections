@@ -1,6 +1,9 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store/useStore'
 import {
+  BuiltinPortId,
+  CustomPortSize,
+  CustomPortVisibility,
   DndFields,
   EdgeDirection,
   EntityType,
@@ -10,11 +13,14 @@ import {
   GroupShape,
   ItemRarity,
   PartyDisposition,
+  PerimeterSide,
   PortraitMode,
   QuestStatus
 } from '../types'
 import {
   X,
+  Plus,
+  CircleDot,
   ArrowRight,
   ArrowLeftRight,
   Upload,
@@ -54,18 +60,40 @@ import {
 } from 'lucide-react'
 import { availableIcons, getIconColor } from '../utils/icons'
 import {
+  CUSTOM_PORT_SWATCHES,
   ENTITY_BG_SWATCHES,
   isHexColorDark,
-  normalizeHexColor
+  normalizeHexColor,
+  resolveDefaultNodePortAccent
 } from '../utils/colorUtils'
 import { OTHER_EDGE_FILTER_KEY, resolveEdgeFilterKey } from '../utils/edgeFilters'
 import {
   computeNextDefaultWaypointPosition,
+  CUSTOM_PORT_SHAPES,
+  CUSTOM_PORT_SHAPE_LABELS,
+  CUSTOM_PORT_SIZES,
+  CUSTOM_PORT_SIZE_LABELS,
+  CUSTOM_PORT_VISIBILITIES,
+  CUSTOM_PORT_VISIBILITY_LABELS,
+  getBuiltinPortSpec,
+  getDefaultPortStyleForId,
   getNodeStackBounds,
+  hasModifiedBuiltinPorts,
+  isBuiltinPerimeterPortId,
+  isBuiltinPortModified,
   isNodeEffectivelyLocked,
-  resolveEdgeEndpointCenter,
-  resolveEntityExplicitSize
+  PERIMETER_SIDES,
+  PERIMETER_SIDE_LABELS,
+  resolveActivePerimeterPorts,
+  resolveEdgeEndpointPoint,
+  resolveEffectiveEdgePerimeterAnchor,
+  resolveEntityExplicitSize,
+  resolvePortDisplayName,
+  sanitizeCustomPortShape,
+  sanitizeCustomPortSize,
+  sanitizeCustomPortVisibility
 } from '../utils/graphPipeline'
+import { PortShapePreviewGlyph } from './nodes/CustomPerimeterHandles'
 import { compressImageFile } from '../utils/imageCompressor'
 import {
   computeEntityConnectionsAndBacklinks,
@@ -116,12 +144,21 @@ export default function Sidebar({
 }: SidebarProps) {
   const {
     campaignEdition,
+    canvasTheme,
+    isDarkMode,
     nodes,
     edges,
     updateNodeData,
     renameEntityLabel,
     updateEdgeData,
     reverseEdgeDirection,
+    addCustomPort,
+    updateCustomPort,
+    removeCustomPort,
+    resetBuiltinPorts,
+    applyPortStyleToAllNodePorts,
+    updateEdgeEndpointAnchor,
+    resetEdgeEndpointAnchors,
     setEdges,
     setNodes,
     deleteNode,
@@ -158,6 +195,7 @@ export default function Sidebar({
   const [isUploadingPortrait, setIsUploadingPortrait] = useState(false)
   const [widthDraft, setWidthDraft] = useState('')
   const [heightDraft, setHeightDraft] = useState('')
+  const [lastAddedPortId, setLastAddedPortId] = useState<string | null>(null)
 
   // Confirmation modal state
   const [confirmState, setConfirmState] = useState<{
@@ -671,6 +709,172 @@ export default function Sidebar({
               </div>
             </div>
 
+            {/* Perimeter Endpoint Attachment (Single-Pointer Accessible Control) */}
+            {(() => {
+              const sNode = nodes.find((n) => n.id === selectedEdge.source)
+              const tNode = nodes.find((n) => n.id === selectedEdge.target)
+              const hasCustomEndpoints = Boolean(
+                data.sourceAnchor ||
+                  data.targetAnchor ||
+                  selectedEdge.sourceHandle?.startsWith('cp-') ||
+                  selectedEdge.targetHandle?.startsWith('cp-')
+              )
+
+              const renderEndpointRow = (
+                which: 'source' | 'target',
+                endpointNode: typeof sNode
+              ) => {
+                if (!endpointNode) return null
+                const handleId =
+                  which === 'source' ? selectedEdge.sourceHandle : selectedEdge.targetHandle
+                const explicitAnchor =
+                  which === 'source' ? data.sourceAnchor : data.targetAnchor
+                const fallbackSide: PerimeterSide = which === 'source' ? 'right' : 'left'
+                const resolved = resolveEffectiveEdgePerimeterAnchor({
+                  handleId,
+                  explicitAnchor,
+                  nodeData: endpointNode.data,
+                  fallbackSide
+                })
+                const endpointIsGroup =
+                  endpointNode.type === 'groupRegion' || Boolean(endpointNode.data?.isGroup)
+                const activePorts = resolveActivePerimeterPorts(
+                  endpointNode.data,
+                  endpointIsGroup
+                )
+                const pct = Math.round(resolved.anchor.offset * 100)
+                const selectId = `${baseId}-edge-${which}-side`
+                const sliderId = `${baseId}-edge-${which}-offset`
+                const selectVal = resolved.customPort
+                  ? `port:${resolved.customPort.id}`
+                  : resolved.anchor.side
+                let customPortCounter = 0
+
+                return (
+                  <div className="flex flex-col gap-1.5 p-2 rounded-md bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-700/80">
+                    <div className="flex items-center justify-between gap-2">
+                      <label
+                        htmlFor={selectId}
+                        className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 truncate"
+                      >
+                        {which === 'source' ? 'From' : 'To'}: {endpointNode.data?.label || 'Entity'}
+                      </label>
+                      <select
+                        id={selectId}
+                        value={selectVal}
+                        onChange={(e) => {
+                          const raw = e.target.value
+                          if (raw.startsWith('port:')) {
+                            updateEdgeEndpointAnchor(
+                              selectedEdge.id,
+                              which,
+                              { anchor: null, customPortId: raw.slice(5) },
+                              true
+                            )
+                          } else {
+                            updateEdgeEndpointAnchor(
+                              selectedEdge.id,
+                              which,
+                              {
+                                anchor: {
+                                  side: raw as PerimeterSide,
+                                  offset: resolved.anchor.offset
+                                }
+                              },
+                              true
+                            )
+                          }
+                        }}
+                        className="max-w-40 border border-slate-300 dark:border-slate-700 rounded px-1.5 py-0.5 text-[11px] font-medium bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
+                      >
+                        <optgroup label="Freeform Edge">
+                          {PERIMETER_SIDES.map((s) => (
+                            <option key={s} value={s}>
+                              {PERIMETER_SIDE_LABELS[s]} Edge (Freeform)
+                            </option>
+                          ))}
+                        </optgroup>
+                        {activePorts.length > 0 && (
+                          <optgroup label="Connection Points">
+                            {activePorts.map((cp) => {
+                              const cpIdx = cp.id.startsWith('cp-')
+                                ? customPortCounter++
+                                : undefined
+                              return (
+                                <option key={cp.id} value={`port:${cp.id}`}>
+                                  {resolvePortDisplayName(cp, cpIdx)} (
+                                  {PERIMETER_SIDE_LABELS[cp.side]} {Math.round(cp.offset * 100)}%)
+                                </option>
+                              )
+                            })}
+                          </optgroup>
+                        )}
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label
+                        htmlFor={sliderId}
+                        className="text-[10px] font-medium text-slate-500 dark:text-slate-400 shrink-0"
+                      >
+                        Edge Pos
+                      </label>
+                      <input
+                        id={sliderId}
+                        type="range"
+                        min="5"
+                        max="95"
+                        step="1"
+                        value={pct}
+                        onPointerDown={() => useStore.getState().pushHistory(true)}
+                        onChange={(e) => {
+                          const nextPct = parseInt(e.target.value, 10)
+                          updateEdgeEndpointAnchor(
+                            selectedEdge.id,
+                            which,
+                            {
+                              anchor: {
+                                side: resolved.anchor.side,
+                                offset: nextPct / 100
+                              }
+                            },
+                            false
+                          )
+                        }}
+                        className="flex-1 cursor-pointer accent-blue-600 h-1.5"
+                      />
+                      <span className="text-[10px] font-mono font-semibold text-slate-600 dark:text-slate-300 w-8 text-right">
+                        {pct}%
+                      </span>
+                    </div>
+                  </div>
+                )
+              }
+
+              if (!sNode && !tNode) return null
+
+              return (
+                <div className="flex flex-col gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                      <CircleDot size={12} className="text-blue-500" aria-hidden="true" />
+                      Endpoint Positions
+                    </span>
+                    {hasCustomEndpoints && (
+                      <button
+                        type="button"
+                        onClick={() => resetEdgeEndpointAnchors(selectedEdge.id)}
+                        className="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-[10px] font-semibold border border-amber-200 dark:border-amber-800 cursor-pointer"
+                      >
+                        Reset Endpoints
+                      </button>
+                    )}
+                  </div>
+                  {renderEndpointRow('source', sNode)}
+                  {renderEndpointRow('target', tNode)}
+                </div>
+              )
+            })()}
+
             {/* Anchors & Routing */}
             <div className="flex flex-col gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
               <div className="flex items-center justify-between">
@@ -688,20 +892,22 @@ export default function Sidebar({
                   type="button"
                   onClick={() => {
                     const st = useStore.getState()
-                    const sCenter = resolveEdgeEndpointCenter(
-                      selectedEdge.source,
+                    const sPt = resolveEdgeEndpointPoint(
+                      selectedEdge,
+                      'source',
                       st.nodes,
                       st.edges
                     )
-                    const tCenter = resolveEdgeEndpointCenter(
-                      selectedEdge.target,
+                    const tPt = resolveEdgeEndpointPoint(
+                      selectedEdge,
+                      'target',
                       st.nodes,
                       st.edges
                     )
                     const nextPt = computeNextDefaultWaypointPosition(
                       data.waypoints || [],
-                      sCenter,
-                      tCenter
+                      sPt,
+                      tPt
                     )
                     st.addWaypoint(selectedEdge.id, nextPt.x, nextPt.y)
                   }}
@@ -969,6 +1175,490 @@ export default function Sidebar({
       updateNodeData(node.id, { tags: [...existing, clean] }, true)
     }
     setTagInput('')
+  }
+
+  const renderCustomPortsSection = () => {
+    const activePorts = resolveActivePerimeterPorts(data, isGroupInspector)
+    const hasBuiltinEdits = hasModifiedBuiltinPorts(data, isGroupInspector)
+    const canEditNode = !effectivelyLocked && (!isPlayerEdition || Boolean(data.isPlayerCreated))
+    const isDarkCanvasSurface =
+      canvasTheme === 'arcane' || (canvasTheme === 'modern' && isDarkMode)
+    const customCategory = customEntityTypes.find((c) => c.label === data.entityType)
+    const defaultPortAccent = isGroupInspector
+      ? resolveGroupTint(data.groupColor, data.groupCustomColor).swatchHex
+      : resolveDefaultNodePortAccent({
+          entityType: data.entityType,
+          customCategoryColor: customCategory?.color,
+          isDarkSurface: data.bgColor ? isHexColorDark(data.bgColor) : isDarkCanvasSurface
+        })
+
+    let customIdxCounter = 0
+
+    return (
+      <div className="flex flex-col gap-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-700">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <span className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+            <CircleDot size={13} className="text-amber-500 shrink-0" aria-hidden="true" />
+            <span>Connection Points</span>
+            <span className="px-1.5 py-0.2 rounded-full bg-slate-200/80 dark:bg-slate-800 text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+              {activePorts.length}
+            </span>
+          </span>
+          {canEditNode && (
+            <div className="flex items-center gap-1.5">
+              {hasBuiltinEdits && (
+                <button
+                  type="button"
+                  title="Restore all 8 pre-populated points to their default positions and styles"
+                  onClick={() => resetBuiltinPorts(node.id)}
+                  className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 text-[10px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
+                >
+                  <RotateCcw size={10} aria-hidden="true" />
+                  <span>Restore Defaults</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  const created = addCustomPort(node.id)
+                  if (created) setLastAddedPortId(created.id)
+                }}
+                className="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700/80 text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
+              >
+                <Plus size={11} aria-hidden="true" />
+                <span>Add Point</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+          Click any pre-populated or added point below (or right-click it on the card edge) to move,
+          restyle, or remove it. Hold <kbd className="font-mono">Alt</kbd>+Drag on the canvas to
+          slide attached lines together.
+        </p>
+
+        {activePorts.length === 0 ? (
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 italic py-1">
+            All connection points hidden — click <strong>Restore Defaults</strong> or{' '}
+            <strong>+ Add Point</strong> above.
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5 mt-0.5">
+            {activePorts.map((port) => {
+              const isBuiltin = isBuiltinPerimeterPortId(port.id)
+              const builtinSpec = getBuiltinPortSpec(port.id)
+              const customIdx = !isBuiltin ? customIdxCounter++ : undefined
+              const displayName = resolvePortDisplayName(port, customIdx)
+              const defaults = getDefaultPortStyleForId(port.id, isGroupInspector)
+              const pct = Math.round(port.offset * 100)
+              const sideSelectId = `${baseId}-port-side-${port.id}`
+              const offsetRangeId = `${baseId}-port-offset-${port.id}`
+              const labelInputId = `${baseId}-port-label-${port.id}`
+              const visSelectId = `${baseId}-port-vis-${port.id}`
+              const colorPickerId = `${baseId}-port-color-${port.id}`
+              const showLabelCheckboxId = `${baseId}-port-showlabel-${port.id}`
+              const portShape = sanitizeCustomPortShape(port.shape, defaults.shape)
+              const portSize = sanitizeCustomPortSize(port.size, defaults.size)
+              const portVis = sanitizeCustomPortVisibility(port.visibility, defaults.visibility)
+              const customPortHex = normalizeHexColor(port.color)
+              const resolvedPortColor = customPortHex || defaultPortAccent
+              const isModifiedBuiltin = isBuiltin && isBuiltinPortModified(port, isGroupInspector)
+              const attachedCount = edges.filter(
+                (e) =>
+                  (e.source === node.id &&
+                    e.sourceHandle === port.id &&
+                    !e.data?.sourceAnchor) ||
+                  (e.target === node.id && e.targetHandle === port.id && !e.data?.targetAnchor)
+              ).length
+
+              return (
+                <details
+                  key={port.id}
+                  open={lastAddedPortId === port.id ? true : undefined}
+                  className="dcc-disclosure group/portitem rounded bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700"
+                >
+                  <summary className="px-2 py-1.5 text-[11px] font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded select-none">
+                    <ChevronRight
+                      size={12}
+                      aria-hidden="true"
+                      className="shrink-0 text-slate-400 transition-transform group-open/portitem:rotate-90"
+                    />
+                    <span
+                      aria-hidden="true"
+                      className="inline-flex items-center justify-center w-4.5 h-4.5 rounded bg-slate-100 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 shrink-0"
+                    >
+                      <PortShapePreviewGlyph
+                        shape={portShape}
+                        color={resolvedPortColor}
+                        isDark={isDarkMode}
+                      />
+                    </span>
+                    <span className="truncate">{displayName}</span>
+                    {isModifiedBuiltin && (
+                      <span className="px-1 py-0.2 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[9px] font-bold shrink-0">
+                        Edited
+                      </span>
+                    )}
+                    {!isBuiltin && (
+                      <span className="px-1 py-0.2 rounded bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-[9px] font-bold shrink-0">
+                        Added
+                      </span>
+                    )}
+                    {attachedCount > 0 && (
+                      <span className="text-[9px] font-normal text-slate-400 shrink-0">
+                        ({attachedCount})
+                      </span>
+                    )}
+                    <span className="ms-auto text-[10px] font-mono font-normal text-slate-400 shrink-0">
+                      {PERIMETER_SIDE_LABELS[port.side]} {pct}% ·{' '}
+                      {portVis === 'dm' ? 'DM' : portVis === 'hover' ? 'Hover' : 'Public'}
+                    </span>
+                  </summary>
+
+                  <div className="px-2 pb-2 pt-1.5 border-t border-slate-100 dark:border-slate-700/70 flex flex-col gap-2">
+                    {/* Name, Side, Reset & Remove */}
+                    <div className="flex items-center justify-between gap-1.5">
+                      <label
+                        htmlFor={labelInputId}
+                        className="sr-only"
+                      >{`${displayName} custom label`}</label>
+                      <input
+                        id={labelInputId}
+                        type="text"
+                        disabled={!canEditNode}
+                        placeholder={
+                          builtinSpec
+                            ? `${builtinSpec.defaultLabel} (default)`
+                            : `Point ${(customIdx ?? 0) + 1}`
+                        }
+                        value={port.label || ''}
+                        onFocus={beginEditSession}
+                        onChange={(e) => {
+                          ensureHistoryOnce()
+                          updateCustomPort(node.id, port.id, { label: e.target.value }, false)
+                        }}
+                        className="flex-1 min-w-0 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 text-[11px] font-medium bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 placeholder-slate-400 outline-none"
+                      />
+                      <label
+                        htmlFor={sideSelectId}
+                        className="sr-only"
+                      >{`${displayName} edge side`}</label>
+                      <select
+                        id={sideSelectId}
+                        disabled={!canEditNode}
+                        value={port.side}
+                        onChange={(e) =>
+                          updateCustomPort(
+                            node.id,
+                            port.id,
+                            { side: e.target.value as PerimeterSide },
+                            true
+                          )
+                        }
+                        className="border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 text-[11px] font-medium bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
+                      >
+                        {PERIMETER_SIDES.map((s) => (
+                          <option key={s} value={s}>
+                            {PERIMETER_SIDE_LABELS[s]}
+                          </option>
+                        ))}
+                      </select>
+                      {canEditNode && isModifiedBuiltin && (
+                        <button
+                          type="button"
+                          aria-label={`Reset ${displayName} to default`}
+                          title="Reset this point to its default position and style"
+                          onClick={() => resetBuiltinPorts(node.id, port.id as BuiltinPortId)}
+                          className="p-1 rounded text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors cursor-pointer"
+                        >
+                          <RotateCcw size={12} aria-hidden="true" />
+                        </button>
+                      )}
+                      {canEditNode && (
+                        <button
+                          type="button"
+                          aria-label={`Remove ${displayName}`}
+                          title="Remove connection point (attached lines stay in place)"
+                          onClick={() => removeCustomPort(node.id, port.id)}
+                          className="p-1 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+                        >
+                          <Trash2 size={12} aria-hidden="true" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Position Slider */}
+                    <div className="flex items-center gap-2">
+                      <label
+                        htmlFor={offsetRangeId}
+                        className="text-[10px] font-medium text-slate-500 dark:text-slate-400 shrink-0"
+                      >
+                        Position
+                      </label>
+                      <input
+                        id={offsetRangeId}
+                        type="range"
+                        min="5"
+                        max="95"
+                        step="1"
+                        disabled={!canEditNode}
+                        value={pct}
+                        style={{ accentColor: resolvedPortColor }}
+                        onPointerDown={() => useStore.getState().pushHistory(true)}
+                        onChange={(e) =>
+                          updateCustomPort(
+                            node.id,
+                            port.id,
+                            { offset: parseInt(e.target.value, 10) / 100 },
+                            false
+                          )
+                        }
+                        className="flex-1 cursor-pointer h-1.5"
+                      />
+                      <span className="text-[10px] font-mono font-semibold text-slate-600 dark:text-slate-300 w-8 text-right">
+                        {pct}%
+                      </span>
+                    </div>
+
+                    {/* Visual Customization Controls */}
+                    {canEditNode && (
+                      <div className="pt-1 border-t border-slate-100 dark:border-slate-700/60 flex flex-col gap-2">
+                        {/* Shape Picker */}
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                            Marker Shape
+                          </span>
+                          <div
+                            role="group"
+                            aria-label={`${displayName} marker shape`}
+                            className="grid grid-cols-3 gap-1"
+                          >
+                            {CUSTOM_PORT_SHAPES.map((sh) => {
+                              const activeShape = portShape === sh
+                              return (
+                                <button
+                                  key={sh}
+                                  type="button"
+                                  aria-pressed={activeShape}
+                                  onClick={() =>
+                                    updateCustomPort(node.id, port.id, { shape: sh }, true)
+                                  }
+                                  className={`px-1.5 py-1 min-h-6 rounded border text-[10px] font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                                    activeShape
+                                      ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-500 text-blue-700 dark:text-blue-200'
+                                      : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                  }`}
+                                >
+                                  <PortShapePreviewGlyph
+                                    shape={sh}
+                                    color={resolvedPortColor}
+                                    isDark={isDarkMode}
+                                  />
+                                  <span>{CUSTOM_PORT_SHAPE_LABELS[sh]}</span>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Size & Visibility */}
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                              Size
+                            </span>
+                            <div
+                              role="group"
+                              aria-label={`${displayName} size`}
+                              className="grid grid-cols-3 gap-1"
+                            >
+                              {CUSTOM_PORT_SIZES.map((sz: CustomPortSize) => {
+                                const activeSize = portSize === sz
+                                return (
+                                  <button
+                                    key={sz}
+                                    type="button"
+                                    aria-pressed={activeSize}
+                                    title={CUSTOM_PORT_SIZE_LABELS[sz]}
+                                    onClick={() =>
+                                      updateCustomPort(node.id, port.id, { size: sz }, true)
+                                    }
+                                    className={`py-1 min-h-6 rounded border text-[10px] font-bold transition-colors cursor-pointer ${
+                                      activeSize
+                                        ? 'bg-blue-600 text-white border-blue-600'
+                                        : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                    }`}
+                                  >
+                                    {sz === 'sm' ? 'S' : sz === 'lg' ? 'L' : 'M'}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col gap-1">
+                            <label
+                              htmlFor={visSelectId}
+                              className="text-[10px] font-semibold text-slate-500 dark:text-slate-400"
+                            >
+                              Visibility
+                            </label>
+                            <select
+                              id={visSelectId}
+                              value={portVis}
+                              onChange={(e) =>
+                                updateCustomPort(
+                                  node.id,
+                                  port.id,
+                                  { visibility: e.target.value as CustomPortVisibility },
+                                  true
+                                )
+                              }
+                              className="min-h-6 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 text-[10px] font-semibold bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-200 cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
+                            >
+                              {CUSTOM_PORT_VISIBILITIES.map((v) => (
+                                <option key={v} value={v}>
+                                  {CUSTOM_PORT_VISIBILITY_LABELS[v]}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Color Swatches + Match Border + Custom Color */}
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                              Color
+                            </span>
+                            <button
+                              type="button"
+                              aria-pressed={!customPortHex}
+                              onClick={() =>
+                                updateCustomPort(node.id, port.id, { color: undefined }, true)
+                              }
+                              className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer ${
+                                !customPortHex
+                                  ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-500 text-blue-700 dark:text-blue-200'
+                                  : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                              }`}
+                            >
+                              <span
+                                aria-hidden="true"
+                                style={{ backgroundColor: defaultPortAccent }}
+                                className="dcc-color-swatch w-2.5 h-2.5 rounded-full border border-black/20 dark:border-white/30"
+                              />
+                              <span>Match Border</span>
+                            </button>
+                          </div>
+
+                          <div
+                            role="group"
+                            aria-label={`${displayName} color`}
+                            className="flex items-center gap-1.5 flex-wrap pt-0.5"
+                          >
+                            {CUSTOM_PORT_SWATCHES.map((sw) => {
+                              const isSelectedColor = customPortHex === sw.hex
+                              return (
+                                <button
+                                  key={sw.key}
+                                  type="button"
+                                  aria-label={sw.label}
+                                  aria-pressed={isSelectedColor}
+                                  title={sw.label}
+                                  onClick={() =>
+                                    updateCustomPort(node.id, port.id, { color: sw.hex }, true)
+                                  }
+                                  style={{ backgroundColor: sw.hex }}
+                                  className={`dcc-color-swatch w-5 h-5 rounded-full border inline-flex items-center justify-center transition-transform cursor-pointer ${
+                                    isSelectedColor
+                                      ? 'border-slate-900 dark:border-white scale-110 ring-2 ring-blue-500/60'
+                                      : 'border-slate-400/70 dark:border-slate-600 hover:scale-105'
+                                  }`}
+                                >
+                                  {isSelectedColor && (
+                                    <Check
+                                      size={11}
+                                      strokeWidth={3}
+                                      aria-hidden="true"
+                                      className="text-white drop-shadow"
+                                    />
+                                  )}
+                                </button>
+                              )
+                            })}
+
+                            <label
+                              htmlFor={colorPickerId}
+                              title="Pick custom port color"
+                              className="inline-flex items-center gap-1 ms-auto text-[10px] font-medium text-slate-500 dark:text-slate-400 cursor-pointer"
+                            >
+                              <span className="sr-only">{`${displayName} custom hex color`}</span>
+                              <input
+                                id={colorPickerId}
+                                type="color"
+                                value={resolvedPortColor}
+                                onPointerDown={() => useStore.getState().pushHistory(true)}
+                                onChange={(e) =>
+                                  updateCustomPort(
+                                    node.id,
+                                    port.id,
+                                    { color: e.target.value },
+                                    false
+                                  )
+                                }
+                                className="dcc-color-swatch w-5 h-5 p-0 border border-slate-300 dark:border-slate-600 rounded bg-transparent cursor-pointer"
+                              />
+                            </label>
+                          </div>
+                        </div>
+
+                        {/* Optional Border Label Tag + Apply Style to All */}
+                        <div className="flex items-center justify-between gap-2 flex-wrap pt-0.5">
+                          <label
+                            htmlFor={showLabelCheckboxId}
+                            className="inline-flex items-center gap-1.5 text-[10px] font-medium text-slate-600 dark:text-slate-300 cursor-pointer select-none"
+                          >
+                            <input
+                              id={showLabelCheckboxId}
+                              type="checkbox"
+                              checked={Boolean(port.showLabel)}
+                              onChange={(e) =>
+                                updateCustomPort(
+                                  node.id,
+                                  port.id,
+                                  { showLabel: e.target.checked },
+                                  true
+                                )
+                              }
+                              className="rounded accent-blue-600 cursor-pointer"
+                            />
+                            <span>Show label badge on border</span>
+                          </label>
+
+                          {activePorts.length > 1 && (
+                            <button
+                              type="button"
+                              title="Apply this point's shape, size, visibility, color, and badge setting to all active points on this item"
+                              onClick={() => applyPortStyleToAllNodePorts(node.id, port.id)}
+                              className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-blue-950/50 text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-300 border border-slate-200 dark:border-slate-700 text-[10px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
+                            >
+                              <Sparkles size={10} className="text-amber-500" aria-hidden="true" />
+                              <span>Apply to All</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </details>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
   }
 
   const renderAliasesAndTagsCard = () => (
@@ -2494,6 +3184,7 @@ export default function Sidebar({
                     </code>{' '}
                     in Lore notes to build automatic backlinks.
                   </p>
+                  {renderCustomPortsSection()}
                   <ConnectionsBacklinksSection
                     nodeId={node.id}
                     nodes={nodes}
@@ -3831,6 +4522,7 @@ export default function Sidebar({
                   </code>{' '}
                   in Lore notes to build automatic backlinks.
                 </p>
+                {renderCustomPortsSection()}
                 <ConnectionsBacklinksSection
                   nodeId={node.id}
                   nodes={nodes}

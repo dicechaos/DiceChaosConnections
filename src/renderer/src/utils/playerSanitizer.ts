@@ -10,7 +10,11 @@ import {
   DndNode,
   PlayerWindowStatePayload
 } from '../types'
-import { cleanEdgeForPersistence, cleanNodeForPersistence } from './campaignSerializer'
+import {
+  cleanEdgeForPersistence,
+  cleanNodeForPersistence,
+  sanitizeCustomPorts
+} from './campaignSerializer'
 
 /**
  * Strips DM-only mechanical/secret subfields from DndFields while keeping public flavor.
@@ -46,12 +50,15 @@ export function sanitizeNodeForPlayers(
     isHidden: _hidden,
     dndFields,
     groupId,
+    customPorts,
     ...publicData
   } = cleaned.data
 
+  const isGroup = cleaned.type === 'groupRegion' || Boolean(publicData.isGroup)
   const safeFields = sanitizeDndFieldsForPlayers(dndFields)
   const safeGroupId =
     groupId && (!visibleGroupIds || visibleGroupIds.has(groupId)) ? groupId : undefined
+  const safeCustomPorts = sanitizeCustomPorts(customPorts, isGroup, true)
 
   return {
     ...cleaned,
@@ -59,7 +66,8 @@ export function sanitizeNodeForPlayers(
     data: {
       ...publicData,
       ...(safeGroupId ? { groupId: safeGroupId } : {}),
-      ...(safeFields ? { dndFields: safeFields } : {})
+      ...(safeFields ? { dndFields: safeFields } : {}),
+      ...(safeCustomPorts ? { customPorts: safeCustomPorts } : {})
     }
   }
 }

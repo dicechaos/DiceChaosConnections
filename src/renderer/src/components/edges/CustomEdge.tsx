@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -8,27 +9,60 @@ import {
   useInternalNode,
   useReactFlow
 } from '@xyflow/react'
-import { DndEdge, EntityNodeData } from '../../types'
+import { DndEdge, EntityNodeData, PerimeterSide } from '../../types'
 import { useStore } from '../../store/useStore'
 import {
+  buildNodeBorderGeometry,
   computeEntityVisualScale,
+  findConnectableNodeAtPoint,
+  formatPerimeterAnchorDescription,
+  projectPointToNodePerimeter,
+  resolveActivePerimeterPorts,
+  resolveEffectiveEdgePerimeterAnchor,
   resolveEntityExplicitSize,
-  snapEndpointToNodeBorder
+  resolveNodeShapeKey,
+  resolvePerimeterAnchorPoint,
+  resolvePortDisplayName,
+  snapCoordinateToStep,
+  snapEndpointToNodeBorder,
+  stepPerimeterAnchor
 } from '../../utils/graphPipeline'
 import { line, curveCatmullRom, curveLinear } from 'd3-shape'
 import { EyeOff, FileText, Lock, MessageSquareText } from 'lucide-react'
 
-function toBorderSide(pos: Position): 'top' | 'bottom' | 'left' | 'right' {
+function toBorderSide(pos: Position): PerimeterSide {
   if (pos === Position.Top) return 'top'
   if (pos === Position.Left) return 'left'
   if (pos === Position.Right) return 'right'
   return 'bottom'
 }
 
+function fromBorderSide(side: PerimeterSide): Position {
+  if (side === 'top') return Position.Top
+  if (side === 'left') return Position.Left
+  if (side === 'right') return Position.Right
+  return Position.Bottom
+}
+
+interface EndpointDragPreview {
+  which: 'source' | 'target'
+  nodeId: string
+  nodeLabel: string
+  side: PerimeterSide
+  offset: number
+  x: number
+  y: number
+  matchedPortId?: string
+  matchedPortLabel?: string
+  isCrossNodeReconnect: boolean
+}
+
 export default function CustomEdge({
   id,
   source,
   target,
+  sourceHandleId,
+  targetHandleId,
   sourceX,
   sourceY,
   targetX,
@@ -39,17 +73,23 @@ export default function CustomEdge({
   selected
 }: EdgeProps<DndEdge>) {
   const {
+    nodes,
     edges,
     campaignEdition,
     isPlayerView,
     updateWaypoint,
     removeWaypoint,
     updateEdgeData,
+    updateEdgeEndpointAnchor,
+    reconnectEdgeEndpoint,
     canvasTheme,
     isDarkMode,
-    activeSnapshotId
+    activeSnapshotId,
+    dragSnapEnabled,
+    dragSnapSize
   } = useStore()
   const { screenToFlowPosition } = useReactFlow()
+  const [dragPreview, setDragPreview] = useState<EndpointDragPreview | null>(null)
   const sourceInternalNode = useInternalNode(source)
   const targetInternalNode = useInternalNode(target)
 
@@ -91,7 +131,7 @@ export default function CustomEdge({
           positionAbsolute: sourceInternalNode.internals.positionAbsolute,
           width: sourceW,
           height: sourceH,
-          shape: isSourceGroup ? 'group' : sourceData?.shape,
+          shape: isSourceGroup ? resolveNodeShapeKey(sourceData, true) : sourceData?.shape,
           scaleFactor: isSourceGroup
             ? 1
             : computeEntityVisualScale(
@@ -123,7 +163,7 @@ export default function CustomEdge({
           positionAbsolute: targetInternalNode.internals.positionAbsolute,
           width: targetW,
           height: targetH,
-          shape: isTargetGroup ? 'group' : targetData?.shape,
+          shape: isTargetGroup ? resolveNodeShapeKey(targetData, true) : targetData?.shape,
           scaleFactor: isTargetGroup
             ? 1
             : computeEntityVisualScale(
@@ -135,33 +175,94 @@ export default function CustomEdge({
         }
       : null
 
-  const snappedSource = sourceGeom
-    ? snapEndpointToNodeBorder(
-        sourceX,
-        sourceY,
-        toBorderSide(sourcePosition),
-        sourceGeom,
-        showMarkerStart ? arrowOutsetPx : -1.2
-      )
-    : { x: sourceX, y: sourceY }
+  const sourceResolved = resolveEffectiveEdgePerimeterAnchor({
+    handleId: sourceHandleId,
+    explicitAnchor: data?.sourceAnchor,
+    nodeData: sourceData,
+    fallbackSide: toBorderSide(sourcePosition)
+  })
 
-  const snappedTarget = targetGeom
-    ? snapEndpointToNodeBorder(
-        targetX,
-        targetY,
-        toBorderSide(targetPosition),
-        targetGeom,
-        showMarkerEnd ? arrowOutsetPx : -1.2
-      )
-    : { x: targetX, y: targetY }
+  const targetResolved = resolveEffectiveEdgePerimeterAnchor({
+    handleId: targetHandleId,
+    explicitAnchor: data?.targetAnchor,
+    nodeData: targetData,
+    fallbackSide: toBorderSide(targetPosition)
+  })
 
-  const sourceBorderDot = sourceGeom
-    ? snapEndpointToNodeBorder(sourceX, sourceY, toBorderSide(sourcePosition), sourceGeom, 0)
-    : snappedSource
+  const sourceOutset = showMarkerStart ? arrowOutsetPx : -1.2
+  const targetOutset = showMarkerEnd ? arrowOutsetPx : -1.2
 
-  const targetBorderDot = targetGeom
-    ? snapEndpointToNodeBorder(targetX, targetY, toBorderSide(targetPosition), targetGeom, 0)
-    : snappedTarget
+  let effectiveSourcePosition = sourcePosition
+  let snappedSource = { x: sourceX, y: sourceY }
+  let sourceBorderDot = { x: sourceX, y: sourceY }
+
+  if (dragPreview?.which === 'source') {
+    const previewNode = nodes.find((n) => n.id === dragPreview.nodeId)
+    effectiveSourcePosition = fromBorderSide(dragPreview.side)
+    sourceBorderDot = { x: dragPreview.x, y: dragPreview.y }
+    snappedSource = previewNode
+      ? resolvePerimeterAnchorPoint(
+          { side: dragPreview.side, offset: dragPreview.offset },
+          buildNodeBorderGeometry(previewNode, edges),
+          sourceOutset
+        )
+      : sourceBorderDot
+  } else if (sourceGeom && sourceResolved.isExplicitOrCustom) {
+    effectiveSourcePosition = fromBorderSide(sourceResolved.anchor.side)
+    snappedSource = resolvePerimeterAnchorPoint(sourceResolved.anchor, sourceGeom, sourceOutset)
+    sourceBorderDot = resolvePerimeterAnchorPoint(sourceResolved.anchor, sourceGeom, 0)
+  } else if (sourceGeom) {
+    snappedSource = snapEndpointToNodeBorder(
+      sourceX,
+      sourceY,
+      toBorderSide(sourcePosition),
+      sourceGeom,
+      sourceOutset
+    )
+    sourceBorderDot = snapEndpointToNodeBorder(
+      sourceX,
+      sourceY,
+      toBorderSide(sourcePosition),
+      sourceGeom,
+      0
+    )
+  }
+
+  let effectiveTargetPosition = targetPosition
+  let snappedTarget = { x: targetX, y: targetY }
+  let targetBorderDot = { x: targetX, y: targetY }
+
+  if (dragPreview?.which === 'target') {
+    const previewNode = nodes.find((n) => n.id === dragPreview.nodeId)
+    effectiveTargetPosition = fromBorderSide(dragPreview.side)
+    targetBorderDot = { x: dragPreview.x, y: dragPreview.y }
+    snappedTarget = previewNode
+      ? resolvePerimeterAnchorPoint(
+          { side: dragPreview.side, offset: dragPreview.offset },
+          buildNodeBorderGeometry(previewNode, edges),
+          targetOutset
+        )
+      : targetBorderDot
+  } else if (targetGeom && targetResolved.isExplicitOrCustom) {
+    effectiveTargetPosition = fromBorderSide(targetResolved.anchor.side)
+    snappedTarget = resolvePerimeterAnchorPoint(targetResolved.anchor, targetGeom, targetOutset)
+    targetBorderDot = resolvePerimeterAnchorPoint(targetResolved.anchor, targetGeom, 0)
+  } else if (targetGeom) {
+    snappedTarget = snapEndpointToNodeBorder(
+      targetX,
+      targetY,
+      toBorderSide(targetPosition),
+      targetGeom,
+      targetOutset
+    )
+    targetBorderDot = snapEndpointToNodeBorder(
+      targetX,
+      targetY,
+      toBorderSide(targetPosition),
+      targetGeom,
+      0
+    )
+  }
 
   const waypoints = data?.waypoints || []
   let edgePath = ''
@@ -194,10 +295,10 @@ export default function CustomEdge({
     const [path, lx, ly] = getBezierPath({
       sourceX: snappedSource.x,
       sourceY: snappedSource.y,
-      sourcePosition,
+      sourcePosition: effectiveSourcePosition,
       targetX: snappedTarget.x,
       targetY: snappedTarget.y,
-      targetPosition
+      targetPosition: effectiveTargetPosition
     })
     edgePath = path
     labelX = lx
@@ -254,8 +355,9 @@ export default function CustomEdge({
     const onPointerMove = (moveEvent: PointerEvent) => {
       if (!el.hasPointerCapture(moveEvent.pointerId)) return
       const flowPos = screenToFlowPosition({ x: moveEvent.clientX, y: moveEvent.clientY })
-      const nextX = Math.round(flowPos.x - offsetX)
-      const nextY = Math.round(flowPos.y - offsetY)
+      const effectiveSnap = moveEvent.altKey ? !dragSnapEnabled : dragSnapEnabled
+      const nextX = snapCoordinateToStep(flowPos.x - offsetX, effectiveSnap, dragSnapSize)
+      const nextY = snapCoordinateToStep(flowPos.y - offsetY, effectiveSnap, dragSnapSize)
 
       if (!hasMoved && (Math.abs(nextX - initialX) > 1 || Math.abs(nextY - initialY) > 1)) {
         hasMoved = true
@@ -299,7 +401,7 @@ export default function CustomEdge({
       return
     }
 
-    const step = e.shiftKey ? 2 : 8
+    const step = e.shiftKey ? 1 : dragSnapEnabled ? dragSnapSize : 8
     let dx = 0
     let dy = 0
     if (e.key === 'ArrowLeft') dx = -step
@@ -312,6 +414,219 @@ export default function CustomEdge({
     e.stopPropagation()
     useStore.getState().pushHistory(false)
     updateWaypoint(id, waypoint.id, waypoint.x + dx, waypoint.y + dy)
+  }
+
+  const handleEndpointPointerDown = (
+    e: React.PointerEvent<HTMLButtonElement>,
+    which: 'source' | 'target'
+  ) => {
+    if (isReadOnly || e.button !== 0) return
+    e.stopPropagation()
+    e.preventDefault()
+
+    const el = e.currentTarget
+    const startClientX = e.clientX
+    const startClientY = e.clientY
+    const originalNodeId = which === 'source' ? source : target
+    const otherNodeId = which === 'source' ? target : source
+    const startedWithAlt = e.altKey
+
+    let hasMoved = false
+    let latestPreview: EndpointDragPreview | null = null
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      const distPx = Math.hypot(
+        moveEvent.clientX - startClientX,
+        moveEvent.clientY - startClientY
+      )
+      if (!hasMoved && distPx < 3) return
+
+      if (!hasMoved) {
+        hasMoved = true
+        el.classList.add('dragging')
+      }
+
+      const st = useStore.getState()
+      const flowPos = screenToFlowPosition({
+        x: moveEvent.clientX,
+        y: moveEvent.clientY
+      })
+      const candidateNode = findConnectableNodeAtPoint(
+        flowPos.x,
+        flowPos.y,
+        st.nodes,
+        st.edges,
+        {
+          currentAttachmentNodeId: originalNodeId.startsWith('proxy-')
+            ? undefined
+            : originalNodeId,
+          disallowNodeId: otherNodeId,
+          hideSecrets
+        }
+      )
+      if (!candidateNode) return
+
+      const candidateIsGroup =
+        candidateNode.type === 'groupRegion' || Boolean(candidateNode.data?.isGroup)
+      const activePorts = resolveActivePerimeterPorts(candidateNode.data, candidateIsGroup)
+      const candidateGeom = buildNodeBorderGeometry(candidateNode, st.edges)
+      const proj = projectPointToNodePerimeter(flowPos.x, flowPos.y, candidateGeom, {
+        customPorts: activePorts,
+        magneticSnap: !moveEvent.altKey
+      })
+      const matchedPort = proj.matchedPortId
+        ? activePorts.find((p) => p.id === proj.matchedPortId)
+        : undefined
+
+      const nextPreview: EndpointDragPreview = {
+        which,
+        nodeId: candidateNode.id,
+        nodeLabel: candidateNode.data?.label || 'Entity',
+        side: proj.side,
+        offset: proj.offset,
+        x: proj.x,
+        y: proj.y,
+        matchedPortId: proj.matchedPortId,
+        matchedPortLabel: matchedPort ? resolvePortDisplayName(matchedPort) : undefined,
+        isCrossNodeReconnect: candidateNode.id !== originalNodeId
+      }
+      latestPreview = nextPreview
+      setDragPreview(nextPreview)
+    }
+
+    const finishDrag = (cancelled: boolean) => {
+      document.removeEventListener('pointermove', onPointerMove)
+      document.removeEventListener('pointerup', onPointerUp)
+      document.removeEventListener('pointercancel', onPointerCancel)
+      el.classList.remove('dragging')
+      setDragPreview(null)
+
+      if (cancelled) return
+
+      if (!hasMoved) {
+        if (startedWithAlt) {
+          updateEdgeEndpointAnchor(id, which, { anchor: null }, true)
+          window.dispatchEvent(
+            new CustomEvent('dcc:announce', {
+              detail: {
+                message: `Reset ${which} attachment point to default`
+              }
+            })
+          )
+        }
+        return
+      }
+
+      if (!latestPreview) return
+
+      const desc = formatPerimeterAnchorDescription(
+        { side: latestPreview.side, offset: latestPreview.offset },
+        latestPreview.matchedPortLabel
+      )
+
+      if (latestPreview.isCrossNodeReconnect) {
+        reconnectEdgeEndpoint(
+          id,
+          which,
+          latestPreview.nodeId,
+          {
+            anchor: { side: latestPreview.side, offset: latestPreview.offset },
+            customPortId: latestPreview.matchedPortId
+          },
+          true
+        )
+        window.dispatchEvent(
+          new CustomEvent('dcc:announce', {
+            detail: {
+              message: `Reconnected ${which} endpoint to ${latestPreview.nodeLabel} (${desc})`
+            }
+          })
+        )
+      } else {
+        updateEdgeEndpointAnchor(
+          id,
+          which,
+          {
+            anchor: { side: latestPreview.side, offset: latestPreview.offset },
+            customPortId: latestPreview.matchedPortId
+          },
+          true
+        )
+        window.dispatchEvent(
+          new CustomEvent('dcc:announce', {
+            detail: {
+              message: `Moved ${which} endpoint to ${desc}`
+            }
+          })
+        )
+      }
+    }
+
+    const onPointerUp = () => finishDrag(false)
+    const onPointerCancel = () => finishDrag(true)
+
+    document.addEventListener('pointermove', onPointerMove)
+    document.addEventListener('pointerup', onPointerUp)
+    document.addEventListener('pointercancel', onPointerCancel)
+  }
+
+  const handleEndpointKeyDown = (
+    e: React.KeyboardEvent<HTMLButtonElement>,
+    which: 'source' | 'target'
+  ) => {
+    if (isReadOnly) return
+    const endpointId = which === 'source' ? source : target
+    if (endpointId.startsWith('proxy-')) return
+
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault()
+      e.stopPropagation()
+      updateEdgeEndpointAnchor(id, which, { anchor: null }, true)
+      window.dispatchEvent(
+        new CustomEvent('dcc:announce', {
+          detail: { message: `Reset ${which} attachment point to default` }
+        })
+      )
+      return
+    }
+
+    if (
+      e.key !== 'ArrowLeft' &&
+      e.key !== 'ArrowRight' &&
+      e.key !== 'ArrowUp' &&
+      e.key !== 'ArrowDown'
+    ) {
+      return
+    }
+
+    e.preventDefault()
+    e.stopPropagation()
+
+    const currentResolved = which === 'source' ? sourceResolved : targetResolved
+    const curSide = currentResolved.anchor.side
+    const stepMag = e.shiftKey ? 0.01 : 0.05
+
+    // Map arrow keys to spatially natural screen direction on the active edge
+    let clockwiseDelta = 0
+    if (curSide === 'top') {
+      clockwiseDelta = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? stepMag : -stepMag
+    } else if (curSide === 'bottom') {
+      clockwiseDelta = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? -stepMag : stepMag
+    } else if (curSide === 'right') {
+      clockwiseDelta = e.key === 'ArrowDown' || e.key === 'ArrowLeft' ? stepMag : -stepMag
+    } else {
+      clockwiseDelta = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? -stepMag : stepMag
+    }
+
+    const nextAnchor = stepPerimeterAnchor(currentResolved.anchor, clockwiseDelta)
+    useStore.getState().pushHistory(false)
+    updateEdgeEndpointAnchor(id, which, { anchor: nextAnchor }, false)
+    const desc = formatPerimeterAnchorDescription(nextAnchor)
+    window.dispatchEvent(
+      new CustomEvent('dcc:announce', {
+        detail: { message: `${which === 'source' ? 'Source' : 'Target'} endpoint at ${desc}` }
+      })
+    )
   }
 
   const handleLabelPointerDown = (e: React.PointerEvent) => {
@@ -573,26 +888,84 @@ export default function CustomEdge({
       )}
 
       {selected && !isReadOnly && (
-        <>
-          <circle
-            cx={sourceBorderDot.x}
-            cy={sourceBorderDot.y}
-            r={5}
-            fill="#3b82f6"
-            stroke="#ffffff"
-            strokeWidth={2}
-            className="pointer-events-none no-export"
+        <ViewportPortal>
+          <button
+            type="button"
+            aria-label={`Source attachment point on ${
+              sourceData?.label || 'connection start'
+            } (${formatPerimeterAnchorDescription(
+              sourceResolved.anchor,
+              sourceResolved.customPort?.label
+            )}). Drag along border or onto another entity, or use arrow keys to move.`}
+            title={`Source endpoint (${formatPerimeterAnchorDescription(
+              sourceResolved.anchor,
+              sourceResolved.customPort?.label
+            )}) — Drag around edge or onto another entity • Hold Alt for smooth free slide • Arrow keys to nudge • Double-click or Alt+Click to reset`}
+            className={`edge-endpoint-handle nodrag nopan no-export ${
+              sourceResolved.customPort ? 'is-custom-port' : ''
+            }`}
+            style={{
+              left: 0,
+              top: 0,
+              transform: `translate(${sourceBorderDot.x}px, ${sourceBorderDot.y}px) translate(-50%, -50%)`,
+              zIndex: 3500
+            }}
+            onPointerDown={(e) => handleEndpointPointerDown(e, 'source')}
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              updateEdgeEndpointAnchor(id, 'source', { anchor: null }, true)
+            }}
+            onKeyDown={(e) => handleEndpointKeyDown(e, 'source')}
           />
-          <circle
-            cx={targetBorderDot.x}
-            cy={targetBorderDot.y}
-            r={5}
-            fill="#3b82f6"
-            stroke="#ffffff"
-            strokeWidth={2}
-            className="pointer-events-none no-export"
+          <button
+            type="button"
+            aria-label={`Target attachment point on ${
+              targetData?.label || 'connection end'
+            } (${formatPerimeterAnchorDescription(
+              targetResolved.anchor,
+              targetResolved.customPort?.label
+            )}). Drag along border or onto another entity, or use arrow keys to move.`}
+            title={`Target endpoint (${formatPerimeterAnchorDescription(
+              targetResolved.anchor,
+              targetResolved.customPort?.label
+            )}) — Drag around edge or onto another entity • Hold Alt for smooth free slide • Arrow keys to nudge • Double-click or Alt+Click to reset`}
+            className={`edge-endpoint-handle nodrag nopan no-export ${
+              targetResolved.customPort ? 'is-custom-port' : ''
+            }`}
+            style={{
+              left: 0,
+              top: 0,
+              transform: `translate(${targetBorderDot.x}px, ${targetBorderDot.y}px) translate(-50%, -50%)`,
+              zIndex: 3500
+            }}
+            onPointerDown={(e) => handleEndpointPointerDown(e, 'target')}
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              updateEdgeEndpointAnchor(id, 'target', { anchor: null }, true)
+            }}
+            onKeyDown={(e) => handleEndpointKeyDown(e, 'target')}
           />
-        </>
+          {dragPreview && (dragPreview.isCrossNodeReconnect || dragPreview.matchedPortId) && (
+            <div
+              aria-hidden="true"
+              className={`pointer-events-none no-export absolute rounded-full border-2 ${
+                dragPreview.matchedPortId
+                  ? 'w-6 h-6 border-amber-500 bg-amber-400/20'
+                  : 'w-7 h-7 border-emerald-500 bg-emerald-400/15'
+              }`}
+              style={{
+                left: 0,
+                top: 0,
+                transform: `translate(${dragPreview.x}px, ${dragPreview.y}px) translate(-50%, -50%)`,
+                zIndex: 3499
+              }}
+            />
+          )}
+        </ViewportPortal>
       )}
     </>
   )

@@ -26,6 +26,55 @@ export const ENTITY_BG_SWATCHES: EntityBgSwatch[] = [
 ]
 
 /**
+ * Curated high-contrast accent swatches for Custom Perimeter Connection Points.
+ */
+export const CUSTOM_PORT_SWATCHES: EntityBgSwatch[] = [
+  { key: 'amber', label: 'Amber Beacon', hex: '#f59e0b' },
+  { key: 'cobalt', label: 'Cobalt Rune', hex: '#3b82f6' },
+  { key: 'emerald', label: 'Emerald Harbor', hex: '#10b981' },
+  { key: 'crimson', label: 'Crimson Gate', hex: '#ef4444' },
+  { key: 'violet', label: 'Arcane Violet', hex: '#8b5cf6' },
+  { key: 'cyan', label: 'Aether Cyan', hex: '#06b6d4' },
+  { key: 'rose', label: 'Rose Sigil', hex: '#ec4899' },
+  { key: 'slate', label: 'Iron Slate', hex: '#475569' }
+]
+
+/**
+ * Resolves the default "Match Border" accent color for a custom connection point when `port.color`
+ * is unset (`undefined`), matching the entity category border, custom category color, or group tint.
+ */
+export function resolveDefaultNodePortAccent(params: {
+  entityType?: string
+  customCategoryColor?: string
+  groupSwatchHex?: string
+  isDarkSurface?: boolean
+}): string {
+  const validGroup = normalizeHexColor(params.groupSwatchHex)
+  if (validGroup) return validGroup
+
+  const validCustomCat = normalizeHexColor(params.customCategoryColor)
+  if (validCustomCat) return validCustomCat
+
+  const dark = Boolean(params.isDarkSurface)
+  switch (params.entityType) {
+    case 'PC':
+      return dark ? '#38bdf8' : '#2563eb'
+    case 'NPC':
+      return dark ? '#34d399' : '#059669'
+    case 'Location':
+      return dark ? '#fbbf24' : '#d97706'
+    case 'Item':
+      return dark ? '#c084fc' : '#9333ea'
+    case 'Organization':
+      return dark ? '#fb7185' : '#e11d48'
+    case 'Event':
+      return dark ? '#94a3b8' : '#475569'
+    default:
+      return '#f59e0b'
+  }
+}
+
+/**
  * Validates and normalizes `#rgb` or `#rrggbb` into lowercase `#rrggbb`.
  * Returns `undefined` when empty or not a valid hex color.
  */

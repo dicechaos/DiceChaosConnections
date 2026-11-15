@@ -9,40 +9,45 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/dicechaos/DiceChaosConnections/releases"><img src="https://img.shields.io/badge/status-Public%20Beta-f59e0b?style=flat-square" alt="Public Beta" /></a>
-  <a href="https://github.com/dicechaos/DiceChaosConnections/releases"><img src="https://img.shields.io/github/v/release/dicechaos/DiceChaosConnections?include_prereleases&style=flat-square&label=download" alt="Latest Release" /></a>
+  <a href="https://github.com/dicechaos/DiceChaosConnections/releases/latest"><img src="https://img.shields.io/github/v/release/dicechaos/DiceChaosConnections?include_prereleases&style=flat-square&label=download" alt="Latest Release" /></a>
+  <a href="https://github.com/dicechaos/DiceChaosConnections/actions"><img src="https://img.shields.io/github/actions/workflow/status/dicechaos/DiceChaosConnections/release.yml?branch=main&style=flat-square&label=build" alt="Build Status" /></a>
   <a href="https://dicechaos.com"><img src="https://img.shields.io/badge/website-dicechaos.com-4f46e5?style=flat-square" alt="dicechaos.com" /></a>
+  <a href="https://github.com/dicechaos/DiceChaosDisplay"><img src="https://img.shields.io/badge/companion%20app-Dice%20Chaos%20Display-0ea5e9?style=flat-square" alt="Dice Chaos Display" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/dicechaos/DiceChaosConnections?style=flat-square" alt="MIT License" /></a>
 </p>
 
 ---
 
-**Dice Chaos Connections** is a local-first desktop studio built for Dungeon Masters, Game Masters, worldbuilders, and tabletop groups. Map out NPCs, factions, locations, clues, secret plots, and edge-to-edge relationships on an infinite canvas—then project a **strictly sanitized, zero-spoiler view** onto a TV, second monitor, or VTT screen-share in real time.
+**Dice Chaos Connections** is a local-first desktop studio built by **[Dice Chaos](https://dicechaos.com)** for Dungeon Masters, Game Masters, worldbuilders, and tabletop groups who love rolling real handcrafted polyhedral dice around the table. Map out NPCs, factions, territories, clues, secret plots, and edge-to-edge relationships on an infinite tactile canvas—then broadcast a **strictly sanitized, zero-spoiler 2nd-Screen Player Window** straight to your table TV, projector, or Discord/OBS stream in real time, with zero accounts, zero cloud lock-in, and zero subscriptions.
 
-> **Public Beta Notice:** Dice Chaos Connections is currently in active **Public Beta**. Your campaigns are stored 100% locally as human-readable `.json` files (with crash-safe atomic saves and toggleable Auto-Save). Found a bug or have a feature request? [Open an issue on GitHub](https://github.com/dicechaos/DiceChaosConnections/issues) or visit **[dicechaos.com](https://dicechaos.com)**.
+> **Part of the Dice Chaos Tabletop Suite:** Built side-by-side with **[Dice Chaos Display](https://github.com/dicechaos/DiceChaosDisplay)**—our offline 4K/8K battlemap studio, animated video scene player, feathered Fog of War, and true 1-inch (`25.4 mm`) physical miniature TV calibration tool. Plan your world, NPCs, factions, and conspiracy webs in *Connections*, export High-DPI Map Posters or broadcast your zero-spoiler lore board at the table, and launch tactical encounters right under your miniatures and **[Dice Chaos](https://dicechaos.com)** dice in *Display*. Found a bug or have a feature request? [Open an issue on GitHub](https://github.com/dicechaos/DiceChaosConnections/issues) or visit **[dicechaos.com](https://dicechaos.com)**.
 
 ---
 
-## Download & Install (Public Beta)
+## Download & Install
 
-1. Grab the latest installer (`dice-chaos-connections-1.0.0-beta.1-setup.exe` or portable `.zip`) from **[GitHub Releases](https://github.com/dicechaos/DiceChaosConnections/releases)**.
-2. Launch the app—it opens out of the box with an interactive 36-node ***The Hobbit: Eve of Five Armies*** showcase campaign and an opt-in **5-Step Feature Tour** (`Tour` button in the top bar).
+1. Grab the latest installer (`dice-chaos-connections-1.0.0-setup.exe` or self-contained portable `dice-chaos-connections-1.0.0-win-x64-portable.zip`, plus macOS `.dmg` and Linux `.AppImage` / `.deb`) from **[GitHub Releases](https://github.com/dicechaos/DiceChaosConnections/releases/latest)**.
+2. Launch **`DiceChaosConnections.exe`**—it opens out of the box with an interactive 36-node ***The Hobbit: Eve of Five Armies*** showcase campaign and an opt-in **5-Step Feature Tour** (`Tour` button in the top bar).
 
-> **Windows SmartScreen Note:** Because Public Beta builds are not yet signed with a commercial EV certificate, Windows may display *"Windows protected your PC"* on first launch. Click **More info** -> **Run anyway** to install.
+> **Windows SmartScreen / macOS Gatekeeper Note:** Because builds are not yet signed with a commercial EV certificate:
+> - **Windows:** If *"Windows protected your PC"* appears on first launch, click **More info** -> **Run anyway**.
+> - **macOS:** Right-click (or Control-click) the app -> **Open** on first launch.
 
 ---
 
 ## Key Features
 
 ### Tactile Mind-Map & Conspiracy Canvas
-- **1-Step Creation:** Double-click empty canvas to spawn an entity, or drag any connection handle into empty space to create and link a new card in one motion.
-- **Manual Card Resizing & Presets:** Drag corners/edges (`140×52 px` to `640×520 px`), enter exact `W × H` dimensions, or batch-match widths/sizes across selected cards.
-- **Layer Stacking (`[` / `]`):** Step overlapping cards *Forward*, *Backward*, *To Front* (`Ctrl+]`), or *To Back* (`Ctrl+[`) across a strict 5-band z-index pipeline so connection lines never sink behind group backgrounds.
+- **1-Step Creation:** Double-click empty canvas to spawn an entity, or drag any connection point into empty space to create and link a new card in one motion.
+- **Customizable & Movable Connection Points:** Edit, slide (`Alt+Drag`), rename, restyle, or hide any of the **8 pre-populated connection points** (`Top`, `Right`, `Bottom`, `Left`, `TL`, `TR`, `BL`, `BR`)—or right-click any card or group border to add unlimited named connection points (*East Gate*, *Secret Postern*, etc.) with attached lines following automatically.
+- **360° Endpoint Dragging & Point Visuals:** Drag either end of any selected connection line around any border (`5%–95%` with magnetic detents) or across to reconnect onto another entity/group; customize per-point **Shape** (*Diamond*, *Circle*, *Ring*, *Square*, *Edge Pill*, *Hidden*), **Size** (`S` / `M` / `L`), **Color** (*Match Border* auto-accent + swatches + custom hex), **Visibility** (*Hover*, *DM Studio*, or *Public Map* on the Player TV & exports), **Border Label Badges**, and **Apply Style to All Points**.
+- **Configurable Drag Jump Distance & Grid Snap (`G`):** Choose `Free (1px)` or `4px`–`48px` drag snap steps from the top bar or canvas right-click menu, hold `Alt` mid-drag to invert snapping on the fly, and keep background grids automatically harmonized per theme.
+- **Manual Card Resizing & Layer Stacking (`[` / `]`):** Drag corners/edges (`140×52 px` to `640×520 px`), batch-match dimensions across selected cards, and step overlapping cards *Forward*, *Backward*, *To Front* (`Ctrl+]`), or *To Back* (`Ctrl+[`) across a strict 5-band z-index pipeline so connection lines never sink behind group backgrounds.
 - **7 Shapes, Custom Colors & 40 Status Icons:** Customize shapes (*Rounded*, *Box*, *Sticky*, *Pill*, *Leaf*, *Arch*, *Oval*), background colors with automatic WCAG light/dark text contrast, and 40 TTRPG status markers (`Skull`, `Crown`, `Flame`, `Swords`, `Lock`, etc.).
 - **Edge-to-Edge ("Conspiracy") Links:** Connect entities *directly to another relationship pill* (e.g., linking an informant to a secret alliance line), with directional/bidirectional arrowheads (`→`, `←`, `↔`), draggable spline waypoints, and movable labels.
 
 ### Connectable Group Regions & Factions
-- **True Connectable Containers (`Ctrl+G`):** Group cities, factions, dungeon wards, or army hosts with their own 8 perimeter connection ports, synchronized member + waypoint dragging, and position locking.
+- **True Connectable Containers (`Ctrl+G`):** Group cities, factions, dungeon wards, or army hosts with their own editable perimeter connection points, synchronized member + waypoint dragging, and position locking.
 - **Rich Region Styling:** 7 tabletop region tints + custom hex colors & opacity (`8%–50%`), crest badges or top banners, status markers, and 1-click **Tidy Grid** / **Fit Bounds** / **Select All**.
 
 ### TTRPG Sheets, Portraits & `[[Wiki-Links]]`
@@ -52,7 +57,7 @@
 - **Obsidian-Style `[[Wiki-Links]]` & Backlinks:** Type `[[` in any note for live autocomplete supporting `[[Aliases]]` and `[[Target|Display Text]]`, automatic rename refactoring across the entire graph, and an automatic **Mentioned-In Backlinks** panel.
 
 ### Zero-Spoiler 2nd-Screen Player Window & Home Conspiracy Edition
-- **Pop-Out Player Screen:** Dedicated secondary window for table TVs, projectors, or Discord/OBS screen-sharing. Hidden items and DM secrets are stripped *before* leaving the GM state.
+- **Pop-Out Player Screen:** Dedicated secondary window for table TVs, projectors, or Discord/OBS screen-sharing. Hidden items, DM secrets, and non-public connection point labels are stripped *before* leaving the GM state.
 - **Live Table Controls:** Pause/resume live sync while making secret edits, sync the players' camera to your view, pop up cinematic **Spotlight Cards**, or tease **`???` Mystery Portraits** with 1-click *Reveal True Identity*.
 - **Two-Way Party Conspiracy Workflow:** Export a **Spoiler-Free Player Handout `.json`** for players to explore at home, add **Party Notes**, and pin **`Theory` Cards/Links**—then non-destructively **Merge Party Notes** back into your master DM file.
 
@@ -63,7 +68,7 @@
 - Export in either **Player-Safe** or **Full DM** scope:
   - **Obsidian Vault Folder:** Markdown notes sorted by category with YAML frontmatter, native `[[Wiki-Links]]`, and extracted `assets/` art ready for Obsidian's Graph View.
   - **Markdown Compendium (`.md`)** & **Print-Styled Lorebook (`.pdf`)**.
-  - **High-DPI Map Poster (`.png`):** Auto-fitted full map or current screen at `1×`–`3×` resolution with optional theme-matched Title & Legend stamps.
+  - **High-DPI Map Poster (`.png`):** Auto-fitted full map or current screen at `1×`–`3×` resolution with optional theme-matched Title & Legend stamps—ready for printing or loading straight onto your tabletop TV in **[Dice Chaos Display](https://github.com/dicechaos/DiceChaosDisplay)**.
 
 ### 4 Tabletop Themes & Local-First Reliability
 - Switch canvas themes per campaign (**Modern Studio**, **Dark Arcane**, **Parchment & Ink**, **Detective Corkboard**) alongside Light/Dark UI chrome.
@@ -76,7 +81,10 @@
 | Shortcut / Gesture | Action |
 | :--- | :--- |
 | **Double-Click Empty Canvas** | Create new entity at cursor |
-| **Drag Handle to Empty Space** | Quick-create & auto-connect new entity |
+| **Drag Connection Point to Empty Space** | Quick-create & auto-connect new entity |
+| **Right-Click Point · `Alt+Drag` Point** | Style, rename, reset, or slide any connection point (attached lines follow) |
+| **Drag Selected Line Endpoint** | Slide endpoint 360° around any border or reconnect to another card/group |
+| **`G` (or Hold `Alt` while dragging)** | Toggle Drag Grid Snap (`Free`–`48px`) / Temporarily invert snap |
 | **Drag Card Corner / Edge** | Resize selected unlocked entity card (`W × H`) |
 | **`Ctrl+G` / `Ctrl+Shift+G`** | Group selected entities / Ungroup (keeping entities) |
 | **`[` / `]` · `Ctrl+[` / `Ctrl+]`** | Step Backward / Forward · Send to Back / Bring to Front |
@@ -106,15 +114,16 @@ npm run dev
 npm run build
 
 # Package OS installers (outputs to dist/)
-npm run build:win     # Windows (.exe NSIS installer)
+npm run build:win     # Windows (.exe NSIS installer & portable .zip)
 npm run build:mac     # macOS (.dmg)
-npm run build:linux   # Linux (.AppImage, .deb, .snap)
+npm run build:linux   # Linux (.AppImage, .deb)
 ```
 
 ---
 
 ## Links & Feedback
 
-- **Website:** [dicechaos.com](https://dicechaos.com)
+- **Handmade Dice & Tabletop Gear:** [dicechaos.com](https://dicechaos.com)
+- **Companion 4K/8K TV Battlemap Studio:** [Dice Chaos Display](https://github.com/dicechaos/DiceChaosDisplay)
 - **Bug Reports & Feature Requests:** [GitHub Issues](https://github.com/dicechaos/DiceChaosConnections/issues)
 - **License:** MIT License — Copyright © 2026 dicechaos (Gus). See [LICENSE](./LICENSE).

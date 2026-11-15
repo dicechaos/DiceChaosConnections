@@ -1,9 +1,14 @@
-name: Build & Publish Beta Release
+name: Build & Publish Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -11,7 +16,7 @@ permissions:
 
 jobs:
   release:
-    name: Package (${{ matrix.os }})
+    name: Build & Package (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -21,7 +26,8 @@ jobs:
             platform_flag: --win
             asset_globs: |
               dist/*.exe
-              dist/*.zip
+              dist/*-portable.zip
+              dist/SHA256SUMS.txt
               dist/latest*.yml
           - os: macos-latest
             platform_flag: --mac
@@ -46,21 +52,47 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Install Linux FUSE dependency (Ubuntu)
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2t64 || sudo apt-get install -y libfuse2
+
       - name: Install dependencies
         run: npm ci
 
       - name: Typecheck & build Electron bundles
         run: npm run build
 
-      - name: Package installers
+      - name: Package installers (Tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npx electron-builder ${{ matrix.platform_flag }} --publish never
+
+      - name: Normalize Windows portable zip & generate SHA256SUMS.txt
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $ver = "${env:GITHUB_REF_NAME}".TrimStart('v')
+          $rawZip = Get-ChildItem -Path "dist" -Filter "*-win.zip" | Select-Object -First 1
+          $portableName = "dice-chaos-connections-$ver-win-x64-portable.zip"
+          if ($rawZip) {
+            Move-Item -Path $rawZip.FullName -Destination "dist/$portableName" -Force
+          }
+          $checksumLines = @()
+          foreach ($file in Get-ChildItem -Path "dist" -Include "*.exe", "*-portable.zip" -File | Where-Object { $_.Name -notlike "*uninstaller*" }) {
+            $hash = (Get-FileHash -Path $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            $checksumLines += "$hash  $($file.Name)"
+          }
+          $checksumLines | Set-Content -Path "dist/SHA256SUMS.txt" -Encoding UTF8
 
       - name: Upload assets to GitHub Release (Tag push)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          name: Dice Chaos Connections ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
           prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
+          make_latest: ${{ !contains(github.ref_name, '-') }}
           files: ${{ matrix.asset_globs }}

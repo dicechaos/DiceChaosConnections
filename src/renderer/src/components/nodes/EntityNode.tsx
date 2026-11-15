@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef } from 'react'
-import { Handle, NodeResizer, Position, NodeProps, useUpdateNodeInternals } from '@xyflow/react'
+import { NodeResizer, NodeProps, useUpdateNodeInternals } from '@xyflow/react'
 import { DndNode, PartyDisposition } from '../../types'
 import {
   User,
@@ -18,8 +18,18 @@ import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import { setEntityResizing, useStore } from '../../store/useStore'
 import { availableIcons, getIconColor } from '../../utils/icons'
-import { isHexColorDark, normalizeHexColor } from '../../utils/colorUtils'
-import { computeEntityVisualScale, resolveEntityExplicitSize } from '../../utils/graphPipeline'
+import {
+  isHexColorDark,
+  normalizeHexColor,
+  resolveDefaultNodePortAccent
+} from '../../utils/colorUtils'
+import {
+  computeEntityVisualScale,
+  resolveEntityExplicitSize,
+  resolveNodePerimeterPorts,
+  resolveNodeShapeKey
+} from '../../utils/graphPipeline'
+import { CustomPerimeterHandles } from './CustomPerimeterHandles'
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -285,6 +295,12 @@ function EntityNode({ id, data, selected }: NodeProps<DndNode>) {
 
   const isReadOnly =
     isPlayerView || activeSnapshotId !== null || (campaignEdition === 'player' && !data.isPlayerCreated)
+  const selfNode = nodes.find((n) => n.id === id)
+  const localWidth = explicitSize.width ?? selfNode?.measured?.width ?? 225
+  const localHeight =
+    explicitSize.height ??
+    selfNode?.measured?.height ??
+    (portraitMode === 'card' && data.portrait ? 195 : 88)
   const parentGroup = data.groupId ? nodes.find((n) => n.id === data.groupId) : undefined
   const effectivelyLocked = Boolean(data.isLocked || parentGroup?.data?.isLocked)
   const isSingleSelected = Boolean(selected && nodes.filter((n) => n.selected).length === 1)
@@ -337,54 +353,6 @@ function EntityNode({ id, data, selected }: NodeProps<DndNode>) {
     return () => observer.disconnect()
   }, [shape, data.label, ovalSubRowCount, portraitMode, explicitSize.width, explicitSize.height])
 
-  // Position corner handles along the actual rounded perimeter so hover dots & drag lines sit on the border
-  const cornerHandleStyles: {
-    tl: React.CSSProperties
-    tr: React.CSSProperties
-    bl: React.CSSProperties
-    br: React.CSSProperties
-  } =
-    shape === 'oval'
-      ? {
-          tl: { left: '14.64%', top: '14.64%' },
-          tr: { left: '85.36%', top: '14.64%' },
-          bl: { left: '14.64%', bottom: '14.64%' },
-          br: { left: '85.36%', bottom: '14.64%' }
-        }
-      : shape === 'pill'
-        ? {
-            tl: { left: '22px', top: '4px' },
-            tr: { left: 'calc(100% - 22px)', top: '4px' },
-            bl: { left: '22px', bottom: '4px' },
-            br: { left: 'calc(100% - 22px)', bottom: '4px' }
-          }
-        : shape === 'arch'
-          ? {
-              tl: { left: '20px', top: '2px' },
-              tr: { left: 'calc(100% - 20px)', top: '2px' },
-              bl: { left: '14px', bottom: '0px' },
-              br: { left: 'calc(100% - 14px)', bottom: '0px' }
-            }
-          : shape === 'leaf'
-            ? {
-                tl: { left: '20px', top: '2px' },
-                tr: { left: 'calc(100% - 14px)', top: '0px' },
-                bl: { left: '14px', bottom: '0px' },
-                br: { left: 'calc(100% - 20px)', bottom: '2px' }
-              }
-            : shape === 'box' || shape === 'sticky'
-              ? {
-                  tl: { left: '14px', top: '0px' },
-                  tr: { left: 'calc(100% - 14px)', top: '0px' },
-                  bl: { left: '14px', bottom: '0px' },
-                  br: { left: 'calc(100% - 14px)', bottom: '0px' }
-                }
-              : {
-                  tl: { left: '16px', top: '0px' },
-                  tr: { left: 'calc(100% - 16px)', top: '0px' },
-                  bl: { left: '16px', bottom: '0px' },
-                  br: { left: 'calc(100% - 16px)', bottom: '0px' }
-                }
   const hasDmSecrets = !isPlayerView && Boolean(data.dmNotes?.trim())
   const hasPartyNotes = Boolean(data.partyNotes?.trim())
   const isTheoryPin = Boolean(data.isPlayerCreated)
@@ -602,60 +570,22 @@ function EntityNode({ id, data, selected }: NodeProps<DndNode>) {
         </div>
       )}
 
-      {/* Connection Handles (8-point: sides + shape-aware corners) */}
-      <Handle
-        type="source"
-        id="t"
-        position={Position.Top}
-        className="!w-2.5 !h-2.5 !bg-blue-500 !border-white opacity-0 group-hover:opacity-100 transition-opacity z-30"
-      />
-      <Handle
-        type="source"
-        id="tl"
-        position={Position.Top}
-        style={cornerHandleStyles.tl}
-        className="!w-2.5 !h-2.5 !bg-blue-500 !border-white opacity-0 group-hover:opacity-100 transition-opacity z-30"
-      />
-      <Handle
-        type="source"
-        id="tr"
-        position={Position.Top}
-        style={cornerHandleStyles.tr}
-        className="!w-2.5 !h-2.5 !bg-blue-500 !border-white opacity-0 group-hover:opacity-100 transition-opacity z-30"
-      />
-
-      <Handle
-        type="source"
-        id="b"
-        position={Position.Bottom}
-        className="!w-2.5 !h-2.5 !bg-blue-500 !border-white opacity-0 group-hover:opacity-100 transition-opacity z-30"
-      />
-      <Handle
-        type="source"
-        id="bl"
-        position={Position.Bottom}
-        style={cornerHandleStyles.bl}
-        className="!w-2.5 !h-2.5 !bg-blue-500 !border-white opacity-0 group-hover:opacity-100 transition-opacity z-30"
-      />
-      <Handle
-        type="source"
-        id="br"
-        position={Position.Bottom}
-        style={cornerHandleStyles.br}
-        className="!w-2.5 !h-2.5 !bg-blue-500 !border-white opacity-0 group-hover:opacity-100 transition-opacity z-30"
-      />
-
-      <Handle
-        type="source"
-        id="l"
-        position={Position.Left}
-        className="!w-2.5 !h-2.5 !bg-blue-500 !border-white opacity-0 group-hover:opacity-100 transition-opacity z-30"
-      />
-      <Handle
-        type="source"
-        id="r"
-        position={Position.Right}
-        className="!w-2.5 !h-2.5 !bg-blue-500 !border-white opacity-0 group-hover:opacity-100 transition-opacity z-30"
+      {/* Unified Perimeter Connection Points (pre-populated + custom, fully movable & customizable) */}
+      <CustomPerimeterHandles
+        nodeId={id}
+        ports={resolveNodePerimeterPorts(data, false)}
+        localWidth={localWidth}
+        localHeight={localHeight}
+        shapeKey={resolveNodeShapeKey(data, false)}
+        defaultAccentColor={resolveDefaultNodePortAccent({
+          entityType: data.entityType,
+          customCategoryColor: !isBuiltIn ? baseCustomColor : undefined,
+          isDarkSurface: isDarkCardSurface
+        })}
+        isDarkSurface={isDarkCardSurface}
+        selected={selected}
+        isReadOnly={isReadOnly}
+        isLocked={effectivelyLocked}
       />
 
       {/* Card Banner Portrait Mode */}

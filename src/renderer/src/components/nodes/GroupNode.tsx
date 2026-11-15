@@ -1,9 +1,7 @@
 import { memo, useEffect } from 'react'
 import {
-  Handle,
   NodeProps,
   NodeResizer,
-  Position,
   useUpdateNodeInternals
 } from '@xyflow/react'
 import {
@@ -18,6 +16,8 @@ import {
 import { useStore } from '../../store/useStore'
 import { hexToRgb, normalizeHexColor } from '../../utils/colorUtils'
 import { availableIcons, getIconColor } from '../../utils/icons'
+import { resolveNodePerimeterPorts, resolveNodeShapeKey } from '../../utils/graphPipeline'
+import { CustomPerimeterHandles } from './CustomPerimeterHandles'
 import {
   Compass,
   EyeOff,
@@ -320,11 +320,6 @@ function GroupNode({ id, data, selected }: NodeProps<DndNode>) {
 
   const canResize = selected && !isReadOnly && !data.isLocked
 
-  const handleClass = cn(
-    'dcc-group-interactive !w-3 !h-3 !bg-blue-500 !border-2 !border-white transition-opacity z-30',
-    selected ? 'opacity-95' : 'opacity-0 group-hover:opacity-100'
-  )
-
   return (
     <div
       style={{
@@ -615,57 +610,18 @@ function GroupNode({ id, data, selected }: NodeProps<DndNode>) {
       </div>
 
       {/* 8 Perimeter Connection Handles so connections attach cleanly to the Group as a whole */}
-      <Handle
-        type="source"
-        id="t"
-        position={Position.Top}
-        className={handleClass}
-      />
-      <Handle
-        type="source"
-        id="tl"
-        position={Position.Top}
-        style={{ left: '25%' }}
-        className={handleClass}
-      />
-      <Handle
-        type="source"
-        id="tr"
-        position={Position.Top}
-        style={{ left: '75%' }}
-        className={handleClass}
-      />
-      <Handle
-        type="source"
-        id="b"
-        position={Position.Bottom}
-        className={handleClass}
-      />
-      <Handle
-        type="source"
-        id="bl"
-        position={Position.Bottom}
-        style={{ left: '25%' }}
-        className={handleClass}
-      />
-      <Handle
-        type="source"
-        id="br"
-        position={Position.Bottom}
-        style={{ left: '75%' }}
-        className={handleClass}
-      />
-      <Handle
-        type="source"
-        id="l"
-        position={Position.Left}
-        className={handleClass}
-      />
-      <Handle
-        type="source"
-        id="r"
-        position={Position.Right}
-        className={handleClass}
+      <CustomPerimeterHandles
+        nodeId={id}
+        ports={resolveNodePerimeterPorts(data, true)}
+        localWidth={width}
+        localHeight={height}
+        shapeKey={resolveNodeShapeKey(data, true)}
+        defaultAccentColor={tint.swatchHex}
+        isDarkSurface={isDarkCanvas}
+        selected={selected}
+        isReadOnly={isReadOnly}
+        isLocked={Boolean(data.isLocked)}
+        isGroup
       />
     </div>
   )
