@@ -1,0 +1,638 @@
+@import "tailwindcss";
+@import '@xyflow/react/dist/style.css';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --scrollbar-track-light: #f1f5f9;
+  --scrollbar-track-dark: #1e293b;
+  --scrollbar-thumb-light: #64748b;
+  --scrollbar-thumb-dark: #94a3b8;
+  --scrollbar-track: var(--scrollbar-track-light);
+  --scrollbar-thumb: var(--scrollbar-thumb-light);
+
+  @media (prefers-color-scheme: dark) {
+    --scrollbar-track: var(--scrollbar-track-dark);
+    --scrollbar-thumb: var(--scrollbar-thumb-dark);
+  }
+
+  @supports (color: light-dark(white, black)) {
+    --scrollbar-track: light-dark(var(--scrollbar-track-light), var(--scrollbar-track-dark));
+    --scrollbar-thumb: light-dark(var(--scrollbar-thumb-light), var(--scrollbar-thumb-dark));
+  }
+
+  color-scheme: light dark;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+
+  &:has(> head > meta[name="color-scheme"][content="dark"]) {
+    color-scheme: dark;
+  }
+  &:has(> head > meta[name="color-scheme"][content="light"]) {
+    color-scheme: light;
+  }
+}
+
+@supports not (scrollbar-color: auto) {
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 4px;
+  }
+  *::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+  }
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: #f8fafc;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+html.dark body, html.dark #root {
+  background-color: #0f172a;
+}
+
+/* Native modal dialog best practices (prevent background scroll chaining; never force display on closed dialog) */
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(3px);
+}
+
+/* Top-layer popup context menu: CSS Anchor Positioning with JS viewport-clamped fallback */
+.context-menu-popover[popover] {
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@supports (position-area: block-end) {
+  .context-menu-popover[popover]:has(> [focusgroup~="menu"]) {
+    position-area: block-end span-inline-end;
+    position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+    inset: auto;
+    margin: 0;
+  }
+}
+
+@supports not (position-area: block-end) {
+  .context-menu-popover[popover] {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+  }
+}
+
+/* Canvas Themes */
+.canvas-theme-modern {
+  background-color: #f8fafc;
+}
+html.dark .canvas-theme-modern {
+  background-color: #0f172a;
+}
+
+.canvas-theme-arcane {
+  background-color: #090d1e;
+  background-image:
+    radial-gradient(circle at 20% 25%, rgba(99, 102, 241, 0.14), transparent 45%),
+    radial-gradient(circle at 80% 75%, rgba(168, 85, 247, 0.12), transparent 45%);
+}
+
+.canvas-theme-parchment {
+  background-color: #f4ebd9;
+  background-image:
+    radial-gradient(ellipse at center, rgba(255, 252, 242, 0.55) 0%, rgba(214, 193, 154, 0.45) 100%);
+}
+
+.canvas-theme-corkboard {
+  background-color: #7c5638;
+  background-image:
+    radial-gradient(rgba(46, 28, 14, 0.22) 1px, transparent 0),
+    radial-gradient(rgba(232, 192, 145, 0.14) 1px, transparent 0),
+    linear-gradient(135deg, rgba(0, 0, 0, 0.12) 0%, transparent 50%, rgba(0, 0, 0, 0.18) 100%);
+  background-size: 14px 14px, 22px 22px, 100% 100%;
+  background-position: 0 0, 7px 11px, 0 0;
+}
+
+/* Theme React Flow built-in zoom controls in dark mode / dark themes */
+html.dark .react-flow__controls,
+.canvas-theme-arcane .react-flow__controls,
+.canvas-theme-corkboard .react-flow__controls {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  border: 1px solid #334155;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+html.dark .react-flow__controls-button,
+.canvas-theme-arcane .react-flow__controls-button,
+.canvas-theme-corkboard .react-flow__controls-button {
+  background: #1e293b;
+  color: #e2e8f0;
+  fill: #e2e8f0;
+  border-bottom: 1px solid #334155;
+}
+
+html.dark .react-flow__controls-button:hover,
+.canvas-theme-arcane .react-flow__controls-button:hover,
+.canvas-theme-corkboard .react-flow__controls-button:hover {
+  background: #334155;
+}
+
+/* Clip inner MiniMap SVG mask strictly to rounded card corners without creating a scroll container */
+.react-flow__minimap {
+  overflow: hidden;
+  overflow: clip;
+}
+
+/* Viewport stacking & Group Region pointer rules:
+   - Group Region nodes sit at zIndex: 1..999 with `pointer-events: none` on the outer box so empty space
+     inside outline-only frames pans/selects naturally while `.dcc-group-interactive` elements
+     (header bar, perimeter rails, resize grips, handles, and tinted backdrop when enabled) stay interactive.
+   - Connection SVG strokes sit at zIndex: 1000/1001 (strictly above all group backgrounds).
+   - `.react-flow__edgelabel-renderer` sits at z-index: 1500 (above SVG strokes & group backgrounds, below Entity cards at 2000+). */
+.react-flow__node-groupRegion {
+  pointer-events: none !important;
+}
+
+.react-flow__node-groupRegion .dcc-group-interactive {
+  pointer-events: auto;
+}
+
+.react-flow__edgelabel-renderer {
+  z-index: 1500;
+}
+
+/* Equal-width 4-tab bar variant for the 320px right-hand Entity / Group Inspector */
+.entity-tablist {
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.entity-tablist::-webkit-scrollbar {
+  display: none;
+}
+.entity-tab {
+  position: relative;
+  flex: 1 1 0%;
+  white-space: nowrap;
+  color: #64748b;
+}
+html.dark .entity-tab {
+  color: #94a3b8;
+}
+.entity-tab:hover {
+  color: #1e293b;
+}
+html.dark .entity-tab:hover {
+  color: #f1f5f9;
+}
+.entity-tab[aria-selected="true"] {
+  color: #2563eb;
+}
+html.dark .entity-tab[aria-selected="true"] {
+  color: #60a5fa;
+}
+.entity-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  border-block-end: 3px solid currentColor;
+}
+
+/* Accessible single-row tablist: style active state via aria-selected + border-block-end pseudo-element */
+.share-tablist {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: inline proximity;
+  scrollbar-width: none;
+}
+.share-tablist::-webkit-scrollbar {
+  display: none;
+}
+.share-tab {
+  position: relative;
+  flex: none;
+  scroll-snap-align: start;
+  color: #475569;
+}
+html.dark .share-tab {
+  color: #cbd5e1;
+}
+.share-tab[aria-selected="true"] {
+  color: #2563eb;
+}
+html.dark .share-tab[aria-selected="true"] {
+  color: #60a5fa;
+}
+.share-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  border-block-end: 3px solid currentColor;
+}
+.share-tabpanels {
+  display: grid;
+}
+.share-tabpanels > [role="tabpanel"] {
+  grid-area: 1 / 1;
+}
+
+/* Full-surface connection routing anchor handle rendered inside <ViewportPortal> */
+.edge-anchor-handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  box-sizing: border-box;
+  border-radius: 9999px;
+  background-color: #3b82f6;
+  border: 2px solid #ffffff;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.38);
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: box-shadow 120ms ease, background-color 120ms ease;
+}
+
+.edge-anchor-handle::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 9999px;
+}
+
+@media (pointer: coarse) {
+  .edge-anchor-handle::after {
+    inset: -15px;
+  }
+}
+
+.edge-anchor-handle:hover,
+.edge-anchor-handle:focus-visible {
+  background-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.38), 0 2px 6px rgba(15, 23, 42, 0.45);
+  outline: none;
+}
+
+.edge-anchor-handle.dragging {
+  cursor: grabbing;
+  background-color: #1d4ed8;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.48), 0 3px 8px rgba(15, 23, 42, 0.5);
+}
+
+/* Connection label pill: position via individual `translate` + base `scale: 1` identity so hover `scale`
+   never multiplies world-space (finalLabelX, finalLabelY) coordinates or flips stacking contexts */
+.edge-label-pill {
+  left: 0;
+  top: 0;
+  scale: 1;
+  transition: opacity 250ms ease, box-shadow 150ms ease, scale 150ms ease;
+}
+
+.edge-label-pill-readonly:hover,
+.edge-label-pill-readonly:focus-visible {
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.45), 0 4px 10px rgba(15, 23, 42, 0.18);
+  outline: none;
+}
+
+@supports (translate: 0px) {
+  @media (hover: hover) and (prefers-reduced-motion: no-preference) {
+    .edge-label-pill-readonly:hover {
+      scale: 1.04;
+    }
+  }
+}
+
+@supports not (translate: 0px) {
+  .edge-label-pill {
+    transform: translate(-50%, -50%) translate(var(--label-x, 0px), var(--label-y, 0px));
+  }
+  @media (hover: hover) and (prefers-reduced-motion: no-preference) {
+    .edge-label-pill-readonly:hover {
+      transform: translate(-50%, -50%) translate(var(--label-x, 0px), var(--label-y, 0px)) scale(1.04);
+    }
+  }
+}
+
+/* Edge-to-label proxy handles: move centering into individual `translate` so hover `scale` stays centered */
+.react-flow__handle.edge-proxy-handle-left {
+  translate: -50% -50%;
+  transform: none;
+  scale: 1;
+  transition: opacity 150ms ease, scale 140ms ease;
+}
+
+.react-flow__handle.edge-proxy-handle-right {
+  translate: 50% -50%;
+  transform: none;
+  scale: 1;
+  transition: opacity 150ms ease, scale 140ms ease;
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .react-flow__handle.edge-proxy-handle-left:hover,
+  .react-flow__handle.edge-proxy-handle-right:hover {
+    scale: 1.4;
+  }
+}
+
+/* Dynamic Entity Card custom background fill with automatic WCAG AA foreground contrast:
+   1. `--entity-fg-fallback` provides deterministic JS sRGB luminance fallback for legacy engines & SVG/PNG export.
+   2. Relative Color Syntax in CIE XYZ D65 (`y` = relative luminance vs 0.17913 threshold) provides pure-CSS WCAG 1.4.3 contrast.
+   3. Native `contrast-color(var(--entity-bg))` upgrades automatically where supported. */
+.dcc-custom-card-bg {
+  --wcag-y-threshold: 0.17913;
+  --y: max(0, sign(var(--wcag-y-threshold) - y));
+  background-color: var(--entity-bg);
+  color: var(--entity-fg-fallback, #0f172a);
+  color: color(from var(--entity-bg) xyz-d65 calc(var(--y) * 0.9505) var(--y) calc(var(--y) * 1.089));
+}
+
+@supports (color: contrast-color(red)) {
+  .dcc-custom-card-bg {
+    color: contrast-color(var(--entity-bg));
+  }
+}
+
+/* Preserve literal color values strictly on color-picker swatches in Windows Forced Colors / High Contrast Mode */
+.dcc-color-swatch {
+  forced-color-adjust: none;
+}
+
+/* Accessible native <details> disclosure panels (find-in-page friendly, progressive-enhancement slide) */
+details.dcc-disclosure > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5ch;
+  cursor: pointer;
+}
+details.dcc-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+details.dcc-disclosure > summary .dcc-disclosure-chevron {
+  rotate: -90deg;
+}
+details.dcc-disclosure[open] > summary .dcc-disclosure-chevron {
+  rotate: 0deg;
+}
+@media (prefers-reduced-motion: no-preference) {
+  details.dcc-disclosure > summary .dcc-disclosure-chevron {
+    transition: rotate 0.18s ease;
+  }
+}
+details.dcc-disclosure::details-content {
+  interpolate-size: allow-keywords;
+  overflow: clip;
+  contain: layout;
+}
+details.dcc-disclosure:not([open])::details-content {
+  block-size: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  details.dcc-disclosure::details-content {
+    transition: block-size 0.22s ease-in-out, content-visibility 0.22s ease-in-out, display 0.22s ease-in-out;
+    transition-behavior: allow-discrete;
+  }
+}
+
+/* Single-line oval node title: runs into the right corner with ellipsis (`overflow: hidden`, never `clip`)
+   and reveals hidden overflow inside its fixed box on card hover or node keyboard focus */
+@property --truncated {
+  syntax: "<integer>";
+  inherits: false;
+  initial-value: 0;
+}
+
+@keyframes dcc-oval-truncated {
+  from, to {
+    --truncated: 1;
+  }
+}
+
+.dcc-oval-label {
+  display: block;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: dcc-oval-truncated linear both;
+  animation-timeline: scroll(self inline);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .group:hover .dcc-oval-label,
+  .react-flow__node:focus-visible .dcc-oval-label {
+    text-overflow: clip;
+  }
+
+  @container style(--truncated: 1) {
+    .group:hover .dcc-oval-label > span,
+    .react-flow__node:focus-visible .dcc-oval-label > span {
+      display: inline-block;
+      margin-inline-start: 100%;
+      translate: calc(1px - 100%);
+      transition:
+        margin-inline-start calc(var(--scroll-width, 120) * 14ms) ease-in,
+        translate calc(var(--scroll-width, 120) * 14ms) ease-in;
+    }
+  }
+
+  .group:hover .dcc-oval-label.is-truncated > span,
+  .react-flow__node:focus-visible .dcc-oval-label.is-truncated > span {
+    display: inline-block;
+    margin-inline-start: 100%;
+    translate: calc(1px - 100%);
+    transition:
+      margin-inline-start calc(var(--scroll-width, 120) * 14ms) ease-in,
+      translate calc(var(--scroll-width, 120) * 14ms) ease-in;
+  }
+}
+
+/* Size-aware Entity Card container & inner media banner clipping (Phase 26 Manual Entity Resizing):
+   - Outer `.entity-size-container` keeps `overflow: visible` so external status badges, lock pins,
+     connection `<Handle>` dots, and `<NodeResizer>` squares are never clipped.
+   - Inner `.entity-card-banner` uses `overflow: clip` (with `overflow: hidden` fallback) so rounded
+     portrait artwork clips cleanly to concentric top corners without creating a scroll container.
+   - `@container` adapts inner spacing when manually narrowed (<185px) or widened (>=340px). */
+.entity-card-banner {
+  overflow: hidden;
+}
+
+@supports (overflow: clip) {
+  .entity-card-banner {
+    overflow: clip;
+  }
+}
+
+@supports (container-type: inline-size) {
+  .entity-size-container {
+    container-type: inline-size;
+  }
+
+  @container (max-width: 185px) {
+    .entity-card-body {
+      gap: 0.45rem;
+    }
+    .entity-card-icon {
+      padding: 0.25rem;
+    }
+    .entity-card-token {
+      width: 2rem;
+      height: 2rem;
+    }
+  }
+
+  @container (min-width: 340px) {
+    .entity-card-body {
+      gap: 0.75rem;
+    }
+  }
+}
+
+.react-flow__resize-control.entity-resizer-handle {
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+@media (hover: hover) {
+  .react-flow__resize-control.entity-resizer-handle:hover {
+    background-color: #dbeafe !important;
+    border-color: #1d4ed8 !important;
+  }
+}
+
+/* ==================== AUTO-SAVE TOGGLE BUTTON (Phase 27) ==================== */
+.dcc-autosave-toggle {
+  min-inline-size: 1.5rem;
+  min-block-size: 1.5rem;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background-color: rgba(241, 245, 249, 0.9);
+  color: #475569;
+}
+
+.dark .dcc-autosave-toggle {
+  border-color: rgba(100, 116, 139, 0.55);
+  background-color: rgba(51, 65, 85, 0.85);
+  color: #cbd5e1;
+}
+
+.dcc-autosave-toggle[aria-pressed="true"] {
+  border-color: rgba(16, 185, 129, 0.65);
+  background-color: rgba(16, 185, 129, 0.14);
+  color: #047857;
+}
+
+.dark .dcc-autosave-toggle[aria-pressed="true"] {
+  border-color: rgba(52, 211, 153, 0.55);
+  background-color: rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+}
+
+.dcc-autosave-toggle:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+.dcc-autosave-track {
+  inline-size: 1.5rem;
+  block-size: 0.875rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(100, 116, 139, 0.45);
+  background-color: rgba(148, 163, 184, 0.45);
+  padding: 1px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.dark .dcc-autosave-track {
+  border-color: rgba(148, 163, 184, 0.4);
+  background-color: rgba(71, 85, 105, 0.85);
+}
+
+.dcc-autosave-toggle[aria-pressed="true"] .dcc-autosave-track {
+  border-color: #059669;
+  background-color: #10b981;
+}
+
+.dcc-autosave-thumb {
+  inline-size: 0.625rem;
+  block-size: 0.625rem;
+  border-radius: 9999px;
+  background-color: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.28);
+  translate: 0 0;
+}
+
+.dcc-autosave-toggle[aria-pressed="true"] .dcc-autosave-thumb {
+  translate: 0.625rem 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dcc-autosave-toggle,
+  .dcc-autosave-track,
+  .dcc-autosave-thumb {
+    transition:
+      background-color 150ms ease,
+      border-color 150ms ease,
+      color 150ms ease,
+      translate 150ms ease;
+  }
+}
+
+@media (hover: hover) {
+  .dcc-autosave-toggle:hover {
+    background-color: rgba(226, 232, 240, 0.95);
+  }
+  .dark .dcc-autosave-toggle:hover {
+    background-color: rgba(71, 85, 105, 0.95);
+  }
+  .dcc-autosave-toggle[aria-pressed="true"]:hover {
+    background-color: rgba(16, 185, 129, 0.22);
+  }
+  .dark .dcc-autosave-toggle[aria-pressed="true"]:hover {
+    background-color: rgba(16, 185, 129, 0.3);
+  }
+}
+
+@media (pointer: coarse) {
+  .dcc-autosave-toggle {
+    min-block-size: 2rem;
+    padding-inline: 0.625rem;
+  }
+}
+
+@media (forced-colors: active) {
+  .dcc-autosave-toggle {
+    border: 1px solid ButtonBorder;
+    color: ButtonText;
+  }
+  .dcc-autosave-toggle[aria-pressed="true"] {
+    border: 2px solid Highlight;
+  }
+  .dcc-autosave-toggle[aria-pressed="true"] .dcc-autosave-track {
+    background-color: Highlight;
+  }
+  .dcc-autosave-thumb {
+    background-color: HighlightText;
+    forced-color-adjust: none;
+  }
+}
