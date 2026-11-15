@@ -15,8 +15,7 @@ Welcome to the official **`v1.0.0`** release of **Dice Chaos Connections** by **
 - **macOS:**
   - **[dice-chaos-connections-1.0.0.dmg](https://github.com/dicechaos/DiceChaosConnections/releases/download/v1.0.0/dice-chaos-connections-1.0.0.dmg)** *(Disk image installer)*
 - **Linux (x64):**
-  - **[dice-chaos-connections-1.0.0.AppImage](https://github.com/dicechaos/DiceChaosConnections/releases/download/v1.0.0/dice-chaos-connections-1.0.0.AppImage)** *(Portable AppImage)* or `.deb` package
-- **Checksums:** See attached **`SHA256SUMS.txt`** on this release for Windows binary verification.
+  - **[dice-chaos-connections-1.0.0.AppImage](https://github.com/dicechaos/DiceChaosConnections/releases/download/v1.0.0/dice-chaos-connections-1.0.0.AppImage)** *(Portable AppImage)* or **[dice-chaos-connections_1.0.0_amd64.deb](https://github.com/dicechaos/DiceChaosConnections/releases/download/v1.0.0/dice-chaos-connections_1.0.0_amd64.deb)**
 
 > **OS Gatekeeper / SmartScreen Note:** Because builds are not yet signed with commercial code-signing certificates:
 > - **Windows:** If *"Windows protected your PC"* appears on first launch, click **More info** -> **Run anyway**.
@@ -40,6 +39,17 @@ Welcome to the official **`v1.0.0`** release of **Dice Chaos Connections** by **
 - **Session Time Machine:** Save session snapshots, preview past sessions safely, and inspect `+ New`, `~ Changed` (field-level before/after), and `Removed` diffs across checkpoints.
 - **Compendium & Poster Exports:** Export **Obsidian Vaults** (YAML frontmatter + `[[Wiki-Links]]` + `assets/`), **Markdown (`.md`)**, **PDF Lorebooks (`.pdf`)**, and **High-DPI Map Posters (`1×`–`3×` `.png`)** ready for printing or loading straight into **[Dice Chaos Display](https://github.com/dicechaos/DiceChaosDisplay)**.
 - **4 Tabletop Themes, Smart Auto-Save & Built-In Showcase:** *Modern Studio*, *Dark Arcane*, *Parchment & Ink*, and *Detective Corkboard* themes, crash-safe atomic `.json` saves with a header **Auto-Save** ON/OFF toggle, and a 36-node ***The Hobbit: Eve of Five Armies*** campaign showcase + 5-step **Tour**.
+
+---
+
+### SHA-256 Checksums
+```text
+cd6e22b8586fa81ca2da44ba7bf6df03fa7071b5cd8094774fc0038fb62cc970  dice-chaos-connections-1.0.0-setup.exe
+bbf20ee0ee8f16262cb770aaf6fd827c54ba66d18842bcded9cd255505a80953  dice-chaos-connections-1.0.0-win-x64-portable.zip
+a3b097d1b115168b96f5c7e796d4a8d6c9b619d84e8452f591389431bd113f07  dice-chaos-connections-1.0.0.dmg
+2b12f06f993be788cc6740c8d28e6c0faead752e7a882ec7fc5c53886e4b4210  dice-chaos-connections-1.0.0.AppImage
+86181182f706cf3576e4f3ad56c35e31d77185ba813aca6b74aab9d7f2f31065  dice-chaos-connections_1.0.0_amd64.deb
+```
 
 ---
 

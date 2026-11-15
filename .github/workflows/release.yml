@@ -81,7 +81,7 @@ jobs:
             Move-Item -Path $rawZip.FullName -Destination "dist/$portableName" -Force
           }
           $checksumLines = @()
-          foreach ($file in Get-ChildItem -Path "dist" -Include "*.exe", "*-portable.zip" -File | Where-Object { $_.Name -notlike "*uninstaller*" }) {
+          foreach ($file in Get-ChildItem -Path "dist\*" -Include "*.exe", "*-portable.zip" -File | Where-Object { $_.Name -notlike "*uninstaller*" }) {
             $hash = (Get-FileHash -Path $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             $checksumLines += "$hash  $($file.Name)"
           }
