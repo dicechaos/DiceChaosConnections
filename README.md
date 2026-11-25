@@ -15,12 +15,12 @@
   <a href="https://github.com/dicechaos/DiceChaosDisplay"><img src="https://img.shields.io/badge/companion%20app-Dice%20Chaos%20Display-10b981?style=flat-square" alt="Dice Chaos Display" /></a>
   <a href="https://github.com/dicechaos/DiceChaosMaps"><img src="https://img.shields.io/badge/companion%20app-Dice%20Chaos%20Maps-d97706?style=flat-square" alt="Dice Chaos Maps" /></a>
   <a href="https://github.com/dicechaos/DiceChaosMasters"><img src="https://img.shields.io/badge/companion%20app-Dice%20Chaos%20Masters-8b5cf6?style=flat-square" alt="Dice Chaos Masters" /></a>
-  <a href="./LICENSE"><img src="https://img.shields.io/github/license/dicechaos/DiceChaosConnections?style=flat-square" alt="MIT License" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/dicechaos/DiceChaosConnections?style=flat-square" alt="GPL-3.0 License" /></a>
 </p>
 
 ---
 
-**Dice Chaos Connections** is a local-first desktop studio built by **[Dice Chaos](https://dicechaos.com)** for Dungeon Masters, Game Masters, worldbuilders, and tabletop groups who love rolling real handcrafted polyhedral dice around the table. Map out NPCs, factions, territories, clues, secret plots, and edge-to-edge relationships on an infinite tactile canvas—then broadcast a **strictly sanitized, zero-spoiler 2nd-Screen Player Window** straight to your table TV, projector, or Discord/OBS stream in real time, with zero accounts, zero cloud lock-in, and zero subscriptions.
+**Dice Chaos Connections** is a free, open-source (**GPL-3.0**), local-first desktop studio built by **[Dice Chaos](https://dicechaos.com)** for Dungeon Masters, Game Masters, worldbuilders, and tabletop groups who love rolling real handcrafted polyhedral dice around the table. Map out NPCs, factions, territories, clues, secret plots, and edge-to-edge relationships on an infinite tactile canvas—then broadcast a **strictly sanitized, zero-spoiler 2nd-Screen Player Window** straight to your table TV, projector, or Discord/OBS stream in real time, with zero accounts, zero cloud lock-in, and zero subscriptions.
 
 > **Part of the Dice Chaos Tabletop Suite:** Built side-by-side with **[Dice Chaos Display](https://github.com/dicechaos/DiceChaosDisplay)** (offline 4K/8K tabletop TV battlemap studio with feathered Fog of War & true 1-inch physical miniature calibration), **[Dice Chaos Maps](https://github.com/dicechaos/DiceChaosMaps)** (free offline TTRPG battlemap & World Atlas cartography studio with multi-story raycast lighting, 3,857 bundled CC0 assets & true 1-inch tabletop TV export), and **[Dice Chaos Masters](https://github.com/dicechaos/DiceChaosMasters)** (free offline parametric 3D polyhedral dice master, matched insert blank & MSLA resin support CAD studio). Plan your world, NPCs, factions, and conspiracy webs in *Connections*, craft multi-story battlemaps and parchment world atlases in *Maps*, run tactical encounters right under your miniatures in *Display*, and forge custom sharp-edge resin dice masters in *Masters*—or equip your party at **[dicechaos.com](https://dicechaos.com)**. Found a bug or have a feature request? [Open an issue on GitHub](https://github.com/dicechaos/DiceChaosConnections/issues).
 
@@ -130,4 +130,4 @@ npm run build:linux   # Linux (.AppImage, .deb)
 - **Companion Battlemap & World Atlas Studio:** [Dice Chaos Maps](https://github.com/dicechaos/DiceChaosMaps)
 - **Companion 3D Dice Master CAD Studio:** [Dice Chaos Masters](https://github.com/dicechaos/DiceChaosMasters)
 - **Bug Reports & Feature Requests:** [GitHub Issues](https://github.com/dicechaos/DiceChaosConnections/issues)
-- **License:** MIT License — Copyright © 2026 dicechaos (Gus). See [LICENSE](./LICENSE).
+- **License:** GNU General Public License v3.0 (GPL-3.0) — Copyright © 2026 dicechaos (Gus). See [LICENSE](./LICENSE).
