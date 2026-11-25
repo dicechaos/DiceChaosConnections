@@ -2243,7 +2243,7 @@ export default function ContextMenu({
       <div
         ref={popoverRef}
         {...({ popover: 'auto' } as any)}
-        className={`context-menu-popover no-export ${widthClass} rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-2xl py-1.5 p-0`}
+        className={`context-menu-popover no-export ${widthClass} rounded-xl border dcc-surface-panel dcc-scroll-y shadow-2xl p-0`}
       >
         <div
           ref={groupRef}

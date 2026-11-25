@@ -202,7 +202,7 @@ export default function MultiSelectPanel({
 
   return (
     <aside
-      className={`absolute right-0 top-0 h-full w-88 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 p-4 flex flex-col gap-4 shadow-2xl z-20 overflow-y-auto shrink-0 ${className}`}
+      className={`dcc-scroll-y dcc-scroll-shadow h-full w-[352px] shrink-0 dcc-surface-panel border-l p-4 flex flex-col gap-4 shadow-xl z-20 overflow-y-auto overscroll-contain ${className}`}
     >
       <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-700 pb-2.5">
         <div className="flex items-center gap-2 min-w-0">

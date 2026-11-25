@@ -29,7 +29,7 @@ import Legend, { LegendExportStamp } from './components/Legend'
 import Sidebar from './components/Sidebar'
 import PlayerInspector from './components/PlayerInspector'
 import ContextMenu, { ContextMenuState } from './components/ContextMenu'
-import TimelineBar from './components/TimelineBar'
+import TimelineBar, { SessionTimelineTray } from './components/TimelineBar'
 import BookmarksBar from './components/BookmarksBar'
 import CommandPaletteModal, { QuickCommandAction } from './components/CommandPaletteModal'
 import ShareExportModal, { ShareTabId } from './components/ShareExportModal'
@@ -241,12 +241,21 @@ function FlowCanvas() {
   const [showHelpModal, setShowHelpModal] = useState(false)
   const [showTour, setShowTour] = useState(false)
   const [showLoadDemoConfirm, setShowLoadDemoConfirm] = useState(false)
+  const [timelineExpanded, setTimelineExpanded] = useState(false)
+  const [timelineCreateTick, setTimelineCreateTick] = useState(0)
+  const [fileMenuOpen, setFileMenuOpen] = useState(false)
   const [pendingDeleteNodeId, setPendingDeleteNodeId] = useState<string | null>(null)
   const [pendingDeleteEdgeId, setPendingDeleteEdgeId] = useState<string | null>(null)
   const [pendingDeleteGroupId, setPendingDeleteGroupId] = useState<string | null>(null)
   const [pendingDeleteSelectionIds, setPendingDeleteSelectionIds] = useState<string[] | null>(null)
 
   const tourTriggerRef = useRef<HTMLButtonElement>(null)
+  const topToolbarRef = useRef<HTMLElement>(null)
+  const fileMenuTriggerRef = useRef<HTMLButtonElement>(null)
+  const fileMenuPopoverRef = useRef<HTMLDivElement>(null)
+  const fileMenuGroupRef = useRef<HTMLDivElement>(null)
+  const fileMenuKeyboardOpenRef = useRef(false)
+  const hasInitialFittedRef = useRef(false)
   const timeoutRef = useRef<NodeJS.Timeout | null>(null)
   const lastSavedSliceRef = useRef<PersistentCampaignSlice | null>(null)
   const autoSaveEnabledRef = useRef<boolean>(autoSaveEnabled)
@@ -272,6 +281,171 @@ function FlowCanvas() {
   useEffect(() => {
     setPreviewSelection(null)
   }, [activeSnapshotId])
+
+  // Frame initial map cleanly once React Flow nodes measure (prevents 400% first-paint zoom spikes)
+  useEffect(() => {
+    if (hasInitialFittedRef.current || nodes.length === 0) return
+    let cancelled = false
+    const raf1 = requestAnimationFrame(() => {
+      const raf2 = requestAnimationFrame(() => {
+        if (cancelled || hasInitialFittedRef.current) return
+        hasInitialFittedRef.current = true
+        fitView({ padding: 0.14, maxZoom: 1.15, duration: 0 })
+      })
+      void raf2
+    })
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(raf1)
+    }
+  }, [nodes.length, fitView])
+
+  // File popover menu sync, anchor-position fallback & focusgroup fallback
+  useEffect(() => {
+    const popover = fileMenuPopoverRef.current
+    const group = fileMenuGroupRef.current
+    const trigger = fileMenuTriggerRef.current
+    if (!popover || !group || !trigger) return
+
+    const supportsFocusGroup = 'focusGroup' in HTMLElement.prototype
+    if (!supportsFocusGroup) {
+      group.setAttribute('role', 'menu')
+      group.querySelectorAll<HTMLButtonElement>('button:not([role])').forEach((btn) => {
+        btn.setAttribute('role', 'menuitem')
+        btn.tabIndex = -1
+      })
+    }
+
+    const positionFallback = () => {
+      if (CSS.supports('position-area', 'block-end')) return
+      const t = trigger.getBoundingClientRect()
+      const m = popover.getBoundingClientRect()
+      const left = Math.max(8, Math.min(t.left, window.innerWidth - m.width - 8))
+      const top = Math.min(t.bottom + 4, window.innerHeight - m.height - 8)
+      popover.style.left = `${left}px`
+      popover.style.top = `${Math.max(8, top)}px`
+    }
+
+    const onToggle = (ev: Event) => {
+      const open = (ev as ToggleEvent).newState === 'open'
+      setFileMenuOpen(open)
+      if (open) {
+        positionFallback()
+        if (fileMenuKeyboardOpenRef.current) {
+          fileMenuKeyboardOpenRef.current = false
+          const first = group.querySelector<HTMLButtonElement>(
+            'button:not(:disabled):not([aria-disabled="true"])'
+          )
+          first?.focus({ preventScroll: true })
+        }
+      }
+    }
+
+    const onGroupKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Tab') {
+        try {
+          if (popover.matches(':popover-open')) popover.hidePopover()
+        } catch {
+          // Ignore
+        }
+        return
+      }
+      if (supportsFocusGroup) return
+      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return
+      const items = Array.from(
+        group.querySelectorAll<HTMLButtonElement>(
+          'button:not(:disabled):not([aria-disabled="true"])'
+        )
+      )
+      if (items.length === 0) return
+      const current = items.indexOf(document.activeElement as HTMLButtonElement)
+      const next =
+        e.key === 'Home'
+          ? 0
+          : e.key === 'End'
+            ? items.length - 1
+            : (Math.max(0, current) + (e.key === 'ArrowUp' ? -1 : 1) + items.length) %
+              items.length
+      e.preventDefault()
+      items[next]?.focus({ preventScroll: true })
+    }
+
+    popover.addEventListener('toggle', onToggle)
+    group.addEventListener('keydown', onGroupKeyDown)
+    return () => {
+      popover.removeEventListener('toggle', onToggle)
+      group.removeEventListener('keydown', onGroupKeyDown)
+    }
+  }, [isPlayerEdition, isReadOnlyCanvas])
+
+  // Toolbar roving-tabindex fallback when native `focusgroup="toolbar wrap"` is unsupported
+  useEffect(() => {
+    const bar = topToolbarRef.current
+    if (!bar || 'focusGroup' in HTMLElement.prototype) return
+
+    const getToolbarControls = () =>
+      Array.from(
+        bar.querySelectorAll<HTMLElement>(
+          ':scope > button, :scope > input, :scope > [role="group"] > button, :scope > [role="group"] > select, :scope > [role="group"] > div > button, :scope > [role="group"] > div > select'
+        )
+      ).filter((el) => el.offsetParent !== null && !el.closest('[popover]'))
+
+    const syncInitial = () => {
+      const items = getToolbarControls()
+      if (items.length > 0 && !items.some((el) => el.tabIndex === 0)) {
+        items.forEach((el, i) => {
+          el.tabIndex = i === 0 ? 0 : -1
+        })
+      }
+    }
+    syncInitial()
+
+    const onFocusIn = (e: FocusEvent) => {
+      const items = getToolbarControls()
+      const target = e.target as HTMLElement
+      if (items.includes(target)) {
+        items.forEach((el) => {
+          el.tabIndex = el === target ? 0 : -1
+        })
+      }
+    }
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return
+      if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return
+      const items = getToolbarControls()
+      const idx = items.indexOf(document.activeElement as HTMLElement)
+      if (idx < 0) return
+      const next =
+        e.key === 'Home'
+          ? 0
+          : e.key === 'End'
+            ? items.length - 1
+            : (idx + (e.key === 'ArrowLeft' ? -1 : 1) + items.length) % items.length
+      e.preventDefault()
+      items[idx].tabIndex = -1
+      items[next].tabIndex = 0
+      items[next].focus()
+    }
+
+    bar.addEventListener('focusin', onFocusIn)
+    bar.addEventListener('keydown', onKeyDown)
+    return () => {
+      bar.removeEventListener('focusin', onFocusIn)
+      bar.removeEventListener('keydown', onKeyDown)
+    }
+  }, [isPlayerScreenOpen, isPlayerEdition, isReadOnlyCanvas])
+
+  const closeFileMenu = () => {
+    const popover = fileMenuPopoverRef.current
+    if (!popover) return
+    try {
+      if (popover.matches(':popover-open')) popover.hidePopover()
+    } catch {
+      // Ignore
+    }
+  }
 
   // Track Alt modifier key so holding Alt mid-drag temporarily inverts grid snap without UI jitter
   useEffect(() => {
@@ -1119,7 +1293,7 @@ function FlowCanvas() {
         setSaveStatus('Loaded')
         setPoliteSaveAnnouncement('Campaign loaded')
         requestAnimationFrame(() => {
-          fitView({ padding: 0.16, duration: 350 })
+          fitView({ padding: 0.16, maxZoom: 1.15, duration: 350 })
         })
       } catch (e) {
         console.error('Failed to parse campaign file', e)
@@ -1470,7 +1644,7 @@ function FlowCanvas() {
       id: 'fit-view',
       label: 'Fit Entire Map in View',
       category: 'Navigation',
-      onRun: () => fitView({ padding: 0.16, duration: 350 })
+      onRun: () => fitView({ padding: 0.16, maxZoom: 1.15, duration: 350 })
     })
     actions.push({
       id: 'toggle-minimap',
@@ -1654,13 +1828,612 @@ function FlowCanvas() {
     : (selectedNodes.length === 1 && Boolean(selectedNode)) ||
       (selectedNodes.length === 0 && Boolean(selectedEdge))
 
+  const fileMenuItemClass =
+    'w-full px-3 py-1.5 text-left text-xs font-medium flex items-center justify-between gap-4 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#1f2e54] focus-visible:bg-slate-100 dark:focus-visible:bg-[#1f2e54] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed'
+
   return (
-    <div className="w-full h-screen flex relative overflow-hidden bg-slate-50 dark:bg-slate-900">
-      <div className="flex-1 min-w-0 h-full flex flex-col relative overflow-hidden">
+    <div className="w-full h-screen flex flex-col overflow-hidden bg-[var(--dcc-void)]">
+      {/* Row 1: Docked Full-Width Single-Row 44px Studio Toolbar */}
+      <header
+        ref={topToolbarRef}
+        role="toolbar"
+        aria-label="Studio toolbar"
+        {...({ focusgroup: 'toolbar wrap' } as any)}
+        className="no-export shrink-0 min-h-11 dcc-chrome-bar border-b px-2.5 py-1 flex items-center gap-1.5 z-30 select-none"
+      >
+        {/* Campaign Identity & File Actions */}
+        <div role="group" aria-label="Campaign and File" className="flex items-center gap-1.5 min-w-0 shrink">
+          <div className="shrink-0">
+            <AppLogoIcon size={22} />
+          </div>
+
+          <input
+            type="text"
+            value={campaignTitle}
+            disabled={isReadOnlyCanvas || isPlayerEdition}
+            onChange={(e) => setCampaignTitle(e.target.value)}
+            aria-label="Campaign Title"
+            placeholder="Campaign Title"
+            title={campaignTitle}
+            className="px-2 py-1 rounded-md text-[13px] font-bold text-slate-800 dark:text-slate-100 bg-transparent hover:bg-slate-200/60 dark:hover:bg-[#1f2e54]/80 focus:bg-white dark:focus:bg-[#0a1022] min-w-20 w-28 lg:w-36 xl:w-48 2xl:w-56 shrink truncate disabled:hover:bg-transparent"
+          />
+
+          {/* File Popover Menu Trigger */}
+          <button
+            ref={fileMenuTriggerRef}
+            id="dcc-file-trigger"
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={fileMenuOpen}
+            {...({ commandfor: 'dcc-file-menu', command: 'toggle-popover' } as any)}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+                fileMenuKeyboardOpenRef.current = true
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault()
+                  const pop = fileMenuPopoverRef.current
+                  if (pop) {
+                    try {
+                      if (!pop.matches(':popover-open')) {
+                        ;(pop as any).showPopover({ source: fileMenuTriggerRef.current })
+                      } else {
+                        const first = fileMenuGroupRef.current?.querySelector<HTMLButtonElement>(
+                          'button:not(:disabled):not([aria-disabled="true"])'
+                        )
+                        first?.focus({ preventScroll: true })
+                      }
+                    } catch {
+                      // Ignore
+                    }
+                  }
+                }
+              }
+            }}
+            onClick={(e) => {
+              if ('commandForElement' in HTMLButtonElement.prototype) return
+              e.preventDefault()
+              const pop = fileMenuPopoverRef.current
+              if (!pop) return
+              try {
+                if (pop.matches(':popover-open')) {
+                  pop.hidePopover()
+                } else {
+                  fileMenuKeyboardOpenRef.current = e.detail === 0
+                  ;(pop as any).showPopover({ source: fileMenuTriggerRef.current })
+                }
+              } catch {
+                // Ignore
+              }
+            }}
+            title="File Menu (New, Load, Save, Save As, Starter Demo)"
+            className={`shrink-0 px-2 py-1 min-h-7 rounded-md text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer ${
+              fileMenuOpen
+                ? 'bg-sky-600 text-white'
+                : 'bg-slate-200/70 dark:bg-[#172342] hover:bg-slate-200 dark:hover:bg-[#1f2e54] text-slate-700 dark:text-slate-200'
+            }`}
+          >
+            <span>File</span>
+            <ChevronDown size={12} aria-hidden="true" />
+          </button>
+
+          {/* File Popover Menu (immediately after trigger for native accessibility) */}
+          <div
+            ref={fileMenuPopoverRef}
+            id="dcc-file-menu"
+            {...({ popover: 'auto' } as any)}
+            className="dcc-menu-popover no-export w-64 rounded-xl border dcc-surface-panel shadow-2xl p-0"
+          >
+            <div
+              ref={fileMenuGroupRef}
+              {...({ focusgroup: 'menu nomemory' } as any)}
+              aria-labelledby="dcc-file-trigger"
+              className="py-1.5"
+            >
+              {!isPlayerEdition && (
+                <button
+                  type="button"
+                  aria-disabled={isReadOnlyCanvas}
+                  onClick={() => {
+                    if (isReadOnlyCanvas) return
+                    closeFileMenu()
+                    handleNewMap()
+                  }}
+                  className={`${fileMenuItemClass} ${isReadOnlyCanvas ? 'opacity-40 cursor-not-allowed' : ''}`}
+                >
+                  <span className="flex items-center gap-2">
+                    <FilePlus2 size={13} className="text-sky-500" aria-hidden="true" />
+                    New Blank Map
+                  </span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  closeFileMenu()
+                  handleLoad()
+                }}
+                className={fileMenuItemClass}
+              >
+                <span className="flex items-center gap-2">
+                  <FolderOpen size={13} className="text-amber-500" aria-hidden="true" />
+                  Open / Load Campaign…
+                </span>
+              </button>
+              <hr className="my-1 border-slate-200/80 dark:border-slate-700/70" />
+              <button
+                type="button"
+                onClick={() => {
+                  closeFileMenu()
+                  void handleSave()
+                }}
+                className={fileMenuItemClass}
+              >
+                <span className="flex items-center gap-2">
+                  <Save size={13} className="text-emerald-500" aria-hidden="true" />
+                  Save Campaign
+                </span>
+                <span className="text-[10px] text-slate-400" aria-hidden="true">
+                  Ctrl+S
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  closeFileMenu()
+                  void handleSaveAs()
+                }}
+                className={fileMenuItemClass}
+              >
+                <span className="flex items-center gap-2 whitespace-nowrap">
+                  <SaveAll size={13} className="text-slate-400 shrink-0" aria-hidden="true" />
+                  Save Campaign As…
+                </span>
+                <span className="text-[10px] text-slate-400 whitespace-nowrap shrink-0" aria-hidden="true">
+                  Ctrl+Shift+S
+                </span>
+              </button>
+              <hr className="my-1 border-slate-200/80 dark:border-slate-700/70" />
+              <button
+                type="button"
+                onClick={() => {
+                  closeFileMenu()
+                  setShareModalTab(undefined)
+                  setShowShareModal(true)
+                }}
+                className={fileMenuItemClass}
+              >
+                <span className="flex items-center gap-2">
+                  <Share2 size={13} className="text-indigo-400" aria-hidden="true" />
+                  Share, Handouts &amp; Export…
+                </span>
+              </button>
+              {!isPlayerEdition && !isPlayerView && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeFileMenu()
+                    setShowLoadDemoConfirm(true)
+                  }}
+                  className={fileMenuItemClass}
+                >
+                  <span className="flex items-center gap-2">
+                    <Sparkles size={13} className="text-amber-400" aria-hidden="true" />
+                    Load Hobbit Starter Map…
+                  </span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 1-Click Save Button with Dirty Dot */}
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            title={
+              activeFileName
+                ? `Save to ${activeFileName} (Ctrl+S)${lastSavedAt ? ` · Last saved ${lastSavedAt}` : ''}`
+                : isDirty
+                  ? 'Unsaved changes · Click or press Ctrl+S to pick a .json file'
+                  : 'Save Campaign to .json File (Ctrl+S)'
+            }
+            className={`shrink-0 px-2 py-1 min-h-7 rounded-md text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer ${
+              isDirty && (!autoSaveEnabled || !activeFilePath) && !isSaving
+                ? 'bg-amber-500/18 hover:bg-amber-500/28 text-amber-800 dark:text-amber-200 border border-amber-500/45'
+                : 'bg-slate-200/70 dark:bg-[#172342] hover:bg-slate-200 dark:hover:bg-[#1f2e54] text-slate-700 dark:text-slate-200'
+            }`}
+          >
+            <Save size={13} aria-hidden="true" />
+            <span className="hidden xl:inline">{isSaving ? 'Saving…' : 'Save'}</span>
+            {isDirty && (
+              <span
+                aria-hidden="true"
+                className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"
+              />
+            )}
+          </button>
+
+          {/* Persistent Auto-Save Toggle */}
+          <button
+            type="button"
+            aria-pressed={autoSaveEnabled}
+            aria-label="Auto-Save"
+            onClick={handleToggleAutoSave}
+            title={
+              autoSaveEnabled
+                ? activeFileName
+                  ? `Auto-Save ON · ${activeFileName}${lastSavedAt ? ` (saved ${lastSavedAt})` : ''} · Click to disable`
+                  : 'Auto-Save ON · Save once (Ctrl+S) to link a .json file · Local crash backup active'
+                : 'Auto-Save OFF · Click to enable automatic saving'
+            }
+            className="dcc-autosave-toggle shrink-0 px-2 py-0.5 min-h-7 rounded-md text-[11px] font-semibold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+          >
+            <span className="hidden 2xl:inline">Auto-Save</span>
+            <span className="2xl:hidden">Auto</span>
+            <span aria-hidden="true" className="dcc-autosave-track">
+              <span className="dcc-autosave-thumb" />
+            </span>
+          </button>
+
+          {saveStatus && (saveStatus === 'Save failed' || saveStatus === 'Invalid file format') && (
+            <span className="text-[11px] font-semibold text-red-600 dark:text-red-400 whitespace-nowrap">
+              {saveStatus}
+            </span>
+          )}
+
+          <span role="status" aria-live="polite" className="sr-only">
+            {politeSaveAnnouncement}
+          </span>
+        </div>
+
+        <span
+          role="separator"
+          aria-orientation="vertical"
+          className="w-px h-5 bg-slate-300/80 dark:bg-slate-700/70 mx-0.5 shrink-0"
+        />
+
+        {/* Tabletop Mode & Live Player Screen */}
+        <div role="group" aria-label="Tabletop view and player screen" className="flex items-center gap-1.5 shrink-0">
+          {isPlayerEdition ? (
+            <span
+              title="Spoiler-Free Player Conspiracy Edition — Add Party Notes & Theory Pins"
+              className="inline-flex items-center gap-1 px-2.5 py-1 min-h-7 rounded-md bg-emerald-600/15 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-200 border border-emerald-500/40 text-xs font-bold select-none"
+            >
+              <Compass size={13} aria-hidden="true" />
+              Player Edition
+            </span>
+          ) : (
+            <>
+              {/* Segmented DM | Player Perspective Toggle */}
+              <div
+                role="group"
+                aria-label="Viewing perspective"
+                className="inline-flex items-center rounded-md p-0.5 bg-slate-200/80 dark:bg-[#0a1022] border border-slate-300/70 dark:border-slate-700/80"
+              >
+                <button
+                  type="button"
+                  aria-pressed={!isPlayerView}
+                  onClick={() => {
+                    if (isPlayerView) togglePlayerView()
+                  }}
+                  title="Viewing: DM (Full Master Campaign with Secrets)"
+                  className={`px-2 py-0.5 min-h-6 rounded text-[11px] font-bold transition-colors cursor-pointer ${
+                    !isPlayerView
+                      ? 'bg-white dark:bg-[#1f2e54] text-slate-900 dark:text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  DM
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={isPlayerView}
+                  onClick={() => {
+                    if (!isPlayerView) togglePlayerView()
+                  }}
+                  title="Viewing: Player (Spoiler-Free Table Preview)"
+                  className={`px-2 py-0.5 min-h-6 rounded text-[11px] font-bold transition-colors cursor-pointer ${
+                    isPlayerView
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  Player
+                </button>
+              </div>
+
+              {/* 2nd-Screen Player Window Pill */}
+              {!isPlayerScreenOpen ? (
+                <button
+                  type="button"
+                  onClick={handleOpenPlayerScreen}
+                  title="Open 2nd-Screen Player Window for TV / Projector / VTT"
+                  className="px-2 py-1 min-h-7 rounded-md bg-slate-200/70 dark:bg-[#172342] hover:bg-slate-200 dark:hover:bg-[#1f2e54] text-slate-700 dark:text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  <MonitorPlay size={13} className="text-emerald-500" aria-hidden="true" />
+                  <span className="hidden lg:inline">Player TV</span>
+                </button>
+              ) : (
+                <div className="inline-flex items-center rounded-md border border-emerald-500/50 bg-emerald-50/80 dark:bg-emerald-950/45 overflow-hidden text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setIsPlayerSyncPaused((p) => !p)}
+                    title={
+                      isPlayerSyncPaused
+                        ? 'Resume live sync to Player Screen'
+                        : 'Pause live sync while rearranging nodes'
+                    }
+                    className={`px-2 py-1 min-h-7 flex items-center gap-1 transition-colors cursor-pointer ${
+                      isPlayerSyncPaused
+                        ? 'bg-amber-500/20 text-amber-800 dark:text-amber-200 hover:bg-amber-500/30'
+                        : 'text-emerald-800 dark:text-emerald-200 hover:bg-emerald-500/15'
+                    }`}
+                  >
+                    {isPlayerSyncPaused ? (
+                      <>
+                        <Play size={12} aria-hidden="true" />
+                        <span>Paused</span>
+                      </>
+                    ) : (
+                      <>
+                        <Pause size={12} aria-hidden="true" />
+                        <span>Live</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSyncCameraToPlayers}
+                    title="Pan & zoom Player Screen camera to match your current view"
+                    className="px-2 py-1 min-h-7 border-l border-emerald-500/30 text-slate-700 dark:text-slate-200 hover:bg-emerald-500/15 flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <LocateFixed size={12} aria-hidden="true" />
+                    <span className="hidden xl:inline">Sync</span>
+                  </button>
+                  {mysterySpotlightNodeId && (
+                    <button
+                      type="button"
+                      onClick={() => handleSpotlightNode(mysterySpotlightNodeId)}
+                      title="Reveal full public name & lore for the currently teased Mystery Portrait"
+                      className="px-2 py-1 min-h-7 border-l border-emerald-500/30 bg-purple-600 text-white hover:bg-purple-700 flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <Eye size={12} aria-hidden="true" />
+                      <span>Reveal</span>
+                    </button>
+                  )}
+                  {hasActiveSpotlight && (
+                    <button
+                      type="button"
+                      onClick={handleClearSpotlight}
+                      title="Clear active Spotlight on Player Screen"
+                      className="px-2 py-1 min-h-7 border-l border-emerald-500/30 bg-amber-500/25 text-amber-900 dark:text-amber-200 hover:bg-amber-500/35 flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <Sparkles size={12} aria-hidden="true" />
+                      <span className="hidden xl:inline">Clear</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    aria-label="Close Player Screen window"
+                    title="Close 2nd-Screen Player Window"
+                    onClick={handleClosePlayerScreen}
+                    className="px-1.5 py-1 min-h-7 border-l border-emerald-500/30 text-slate-500 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <span
+          role="separator"
+          aria-orientation="vertical"
+          className="w-px h-5 bg-slate-300/80 dark:bg-slate-700/70 mx-0.5 shrink-0"
+        />
+
+        {/* History & Unified Search */}
+        <div role="group" aria-label="History and search" className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            aria-disabled={isUndoDisabled}
+            onClick={() => {
+              if (!isUndoDisabled) undo()
+            }}
+            title="Undo (Ctrl+Z)"
+            aria-label="Undo"
+            className={`p-1.5 min-w-7 min-h-7 bg-slate-200/70 dark:bg-[#172342] rounded-md transition-colors ${
+              isUndoDisabled
+                ? 'opacity-40 cursor-not-allowed'
+                : 'hover:bg-slate-200 dark:hover:bg-[#1f2e54] cursor-pointer'
+            }`}
+          >
+            <Undo size={14} className="text-slate-700 dark:text-slate-200" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            aria-disabled={isRedoDisabled}
+            onClick={() => {
+              if (!isRedoDisabled) redo()
+            }}
+            title="Redo (Ctrl+Y)"
+            aria-label="Redo"
+            className={`p-1.5 min-w-7 min-h-7 bg-slate-200/70 dark:bg-[#172342] rounded-md transition-colors ${
+              isRedoDisabled
+                ? 'opacity-40 cursor-not-allowed'
+                : 'hover:bg-slate-200 dark:hover:bg-[#1f2e54] cursor-pointer'
+            }`}
+          >
+            <Redo size={14} className="text-slate-700 dark:text-slate-200" aria-hidden="true" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowCommandPalette(true)}
+            title="Open Search, #Tags & Studio Command Palette (Ctrl+K / Ctrl+F)"
+            className={`ml-0.5 px-2.5 py-1 min-h-7 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+              searchQuery
+                ? 'bg-sky-600 text-white hover:bg-sky-700'
+                : 'bg-slate-200/70 dark:bg-[#172342] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-[#1f2e54]'
+            }`}
+          >
+            <Search size={13} aria-hidden="true" />
+            <span className="truncate max-w-28">
+              {searchQuery ? `Filter: ${searchQuery}` : 'Search'}
+            </span>
+            <kbd
+              className={`text-[10px] font-bold px-1 py-0.2 rounded ${
+                searchQuery
+                  ? 'bg-sky-700/80 text-sky-100'
+                  : 'bg-white/90 dark:bg-[#0a1022] text-slate-500 dark:text-slate-400 border border-slate-300/70 dark:border-slate-700'
+              }`}
+            >
+              Ctrl+K
+            </kbd>
+          </button>
+        </div>
+
+        {/* Right Cluster: Canvas Theme, Snap, MiniMap, UI Scheme, Share, Tour, Help */}
         <div
-          id="map-export-wrapper"
-          className={`flex-1 min-h-0 relative canvas-theme-${canvasTheme}`}
+          role="group"
+          aria-label="Canvas settings and sharing"
+          className="ms-auto flex items-center gap-1.5 shrink-0"
         >
+          <div className="relative flex items-center">
+            <Palette
+              size={13}
+              aria-hidden="true"
+              className="absolute left-2 text-slate-500 dark:text-slate-400 pointer-events-none"
+            />
+            <select
+              aria-label="Canvas Theme"
+              value={canvasTheme}
+              onChange={(e) => setCanvasTheme(e.target.value as CanvasTheme)}
+              className="pl-6 pr-2 py-1 min-h-7 rounded-md bg-slate-200/70 dark:bg-[#172342] text-slate-700 dark:text-slate-200 text-xs font-medium hover:bg-slate-200 dark:hover:bg-[#1f2e54] cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
+            >
+              {(Object.keys(THEME_LABELS) as CanvasTheme[]).map((k) => (
+                <option key={k} value={k}>
+                  {THEME_LABELS[k]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {!isReadOnlyCanvas && (
+            <div className="inline-flex items-center rounded-md overflow-hidden border border-slate-300/70 dark:border-slate-700/80 bg-slate-200/70 dark:bg-[#172342]">
+              <button
+                type="button"
+                aria-pressed={dragSnapEnabled}
+                aria-label="Toggle Grid Snap"
+                onClick={() => toggleDragSnap()}
+                title={
+                  dragSnapEnabled
+                    ? `Grid Snap ON (${dragSnapSize}px) · Click or press G for Free drag · Hold Alt while dragging to bypass`
+                    : `Grid Snap OFF (Free 1px) · Click or press G to restore ${dragSnapSize}px snap · Hold Alt while dragging to snap`
+                }
+                className={`p-1.5 min-w-7 min-h-7 flex items-center justify-center transition-colors cursor-pointer ${
+                  dragSnapEnabled
+                    ? 'bg-sky-600 text-white hover:bg-sky-700'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-[#1f2e54]'
+                }`}
+              >
+                <Grid3x3 size={14} aria-hidden="true" />
+              </button>
+              <select
+                aria-label="Drag Snap Distance"
+                value={dragSnapEnabled ? dragSnapSize : 0}
+                onChange={(e) => setDragSnapOption(Number(e.target.value) as DragSnapOption)}
+                title="Drag jump & snap distance (Hold Alt while dragging to temporarily invert)"
+                className="px-1.5 py-1 min-h-7 border-l border-slate-300/70 dark:border-slate-700/80 bg-transparent hover:bg-slate-200/80 dark:hover:bg-[#1f2e54] text-slate-700 dark:text-slate-200 text-xs font-medium cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
+              >
+                {DRAG_SNAP_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {DRAG_SNAP_LABELS[opt].short}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <button
+            type="button"
+            aria-pressed={showMiniMap}
+            onClick={() => setShowMiniMap((v) => !v)}
+            className={`p-1.5 min-w-7 min-h-7 rounded-md transition-colors cursor-pointer ${
+              showMiniMap
+                ? 'bg-sky-600 text-white hover:bg-sky-700'
+                : 'bg-slate-200/70 dark:bg-[#172342] hover:bg-slate-200 dark:hover:bg-[#1f2e54] text-slate-700 dark:text-slate-200'
+            }`}
+            title="Toggle MiniMap Radar (M)"
+            aria-label="Toggle MiniMap Radar"
+          >
+            <MapIcon size={14} aria-hidden="true" />
+          </button>
+
+          <button
+            type="button"
+            onClick={toggleDarkMode}
+            className="p-1.5 min-w-7 min-h-7 bg-slate-200/70 dark:bg-[#172342] hover:bg-slate-200 dark:hover:bg-[#1f2e54] rounded-md text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+            title="Toggle Light / Dark Studio UI"
+            aria-label="Toggle Light or Dark Studio UI"
+          >
+            {isDarkMode ? <Sun size={14} aria-hidden="true" /> : <Moon size={14} aria-hidden="true" />}
+          </button>
+
+          <span
+            role="separator"
+            aria-orientation="vertical"
+            className="w-px h-5 bg-slate-300/80 dark:bg-slate-700/70 mx-0.5 shrink-0"
+          />
+
+          <button
+            type="button"
+            onClick={() => {
+              setShareModalTab(undefined)
+              setShowShareModal(true)
+            }}
+            title="Export Player .json, Merge Party Notes, Export Dossiers (.md / Obsidian / .pdf) or Map PNG"
+            className="px-2.5 py-1 min-h-7 bg-sky-600 hover:bg-sky-700 rounded-md text-xs font-semibold transition-colors text-white flex items-center gap-1 cursor-pointer whitespace-nowrap"
+          >
+            <Share2 size={13} aria-hidden="true" />
+            <span>Share</span>
+          </button>
+
+          <button
+            ref={tourTriggerRef}
+            type="button"
+            onClick={() => setShowTour((v) => !v)}
+            title="Interactive 5-Step Studio Feature Tour"
+            aria-expanded={showTour}
+            className={`px-2 py-1 min-h-7 rounded-md text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer ${
+              showTour
+                ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                : 'bg-indigo-500/12 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-200 border border-indigo-400/35 hover:bg-indigo-500/20 dark:hover:bg-indigo-500/30'
+            }`}
+          >
+            <Sparkles size={13} aria-hidden="true" />
+            <span className="hidden xl:inline">Tour</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowHelpModal(true)}
+            title="Shortcuts & Tips (?)"
+            aria-label="Shortcuts and Help"
+            className="p-1.5 min-w-7 min-h-7 bg-slate-200/70 dark:bg-[#172342] hover:bg-slate-200 dark:hover:bg-[#1f2e54] rounded-md text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+          >
+            <HelpCircle size={14} aria-hidden="true" />
+          </button>
+        </div>
+      </header>
+
+      {/* Row 2: Main Workspace (Infinite Canvas + Optional Timeline Tray + Docked Right Inspector Rail) */}
+      <div className="flex-1 min-h-0 flex relative overflow-hidden">
+        <div className="flex-1 min-w-0 h-full flex flex-col relative overflow-hidden">
+          <div
+            id="map-export-wrapper"
+            className={`flex-1 min-h-0 relative canvas-theme-${canvasTheme}`}
+          >
         <ReactFlow
           nodes={renderedNodes}
           edges={finalEdges}
@@ -1815,6 +2588,7 @@ function FlowCanvas() {
           snapToGrid={effectiveSnapToGrid}
           snapGrid={[dragSnapSize, dragSnapSize]}
           fitView
+          fitViewOptions={{ padding: 0.14, maxZoom: 1.15 }}
           proOptions={{ hideAttribution: true }}
           defaultEdgeOptions={{
             type: 'dndEdge'
@@ -1936,477 +2710,30 @@ function FlowCanvas() {
           </div>
         )}
 
-        {/* Unified Non-Overlapping Top-Left Studio Stack: Header -> Pinned Filter -> Legend */}
+        {/* Unified Non-Overlapping Top-Left Canvas Stack: Pinned Filter -> Compact Legend */}
         <div
-          className={`absolute top-3 left-4 z-10 flex flex-col items-start gap-2 ${
-            showMiniMap ? 'max-h-[calc(100%-176px)]' : 'max-h-[calc(100%-148px)]'
-          } pointer-events-none no-export max-w-[calc(100%-32px)]`}
+          className={`absolute top-3 left-3 z-10 flex flex-col items-start gap-2 ${
+            showMiniMap ? 'max-h-[calc(100%-176px)]' : 'max-h-[calc(100%-144px)]'
+          } pointer-events-none no-export max-w-[calc(100%-24px)]`}
         >
-          {/* Top Studio Bar */}
-          <header className="pointer-events-auto shrink-0 bg-white/95 dark:bg-slate-800/95 backdrop-blur shadow-lg rounded-xl px-2.5 py-1.5 flex flex-wrap items-center gap-1.5 border border-slate-200 dark:border-slate-700 max-w-full">
-            <AppLogoIcon size={22} />
-
-            {/* Editable Campaign Title */}
-            <input
-              type="text"
-              value={campaignTitle}
-              disabled={isReadOnlyCanvas || isPlayerEdition}
-              onChange={(e) => setCampaignTitle(e.target.value)}
-              aria-label="Campaign Title"
-              placeholder="Campaign Title"
-              className="px-2 py-1 rounded text-sm font-bold text-slate-800 dark:text-slate-100 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-700/60 focus:bg-white dark:focus:bg-slate-900 focus:ring-2 focus:ring-blue-500 outline-none w-42 truncate disabled:hover:bg-transparent"
-            />
-
-            <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5" />
-
-            {isPlayerEdition ? (
-              <span
-                title="Spoiler-Free Player Conspiracy Edition — Add Party Notes & Theory Pins"
-                className="inline-flex items-center gap-1 px-2.5 py-1 min-h-6 rounded-md bg-emerald-600/15 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-200 border border-emerald-500/40 text-xs font-bold select-none"
-              >
-                <Compass size={13} aria-hidden="true" />
-                Player Edition
-              </span>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  aria-pressed={isPlayerView}
-                  onClick={togglePlayerView}
-                  title={
-                    isPlayerView
-                      ? 'Viewing Spoiler-Free Player View — click to switch to Viewing: DM'
-                      : 'Viewing Full DM View — click to switch to Viewing: Player'
-                  }
-                  className={`px-2.5 py-1 min-h-6 rounded-md text-xs font-semibold border transition-colors cursor-pointer inline-grid items-center justify-items-center ${
-                    isPlayerView
-                      ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
-                      : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border-transparent hover:bg-slate-200 dark:hover:bg-slate-600'
-                  }`}
-                >
-                  <span className="col-start-1 row-start-1">
-                    {isPlayerView ? 'Viewing: Player' : 'Viewing: DM'}
-                  </span>
-                  <span
-                    aria-hidden="true"
-                    className="col-start-1 row-start-1 invisible pointer-events-none select-none"
-                  >
-                    Viewing: Player
-                  </span>
-                </button>
-
-                {/* 2nd-Screen Player Window Pill */}
-                {!isPlayerScreenOpen ? (
-                  <button
-                    type="button"
-                    onClick={handleOpenPlayerScreen}
-                    title="Open 2nd-Screen Player Window for TV / Projector / VTT"
-                    className="px-2.5 py-1 rounded-md bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <MonitorPlay size={13} aria-hidden="true" />
-                    <span>Player Screen</span>
-                  </button>
-                ) : (
-                  <div className="inline-flex items-center rounded-md border border-emerald-500/50 bg-emerald-50/70 dark:bg-emerald-950/40 overflow-hidden text-xs font-semibold">
-                    <button
-                      type="button"
-                      onClick={() => setIsPlayerSyncPaused((p) => !p)}
-                      title={
-                        isPlayerSyncPaused
-                          ? 'Resume live sync to Player Screen'
-                          : 'Pause live sync while rearranging nodes'
-                      }
-                      className={`px-2 py-1 flex items-center gap-1 transition-colors cursor-pointer ${
-                        isPlayerSyncPaused
-                          ? 'bg-amber-500/20 text-amber-800 dark:text-amber-200 hover:bg-amber-500/30'
-                          : 'text-emerald-800 dark:text-emerald-200 hover:bg-emerald-500/15'
-                      }`}
-                    >
-                      {isPlayerSyncPaused ? (
-                        <>
-                          <Play size={12} aria-hidden="true" />
-                          <span>Paused</span>
-                        </>
-                      ) : (
-                        <>
-                          <Pause size={12} aria-hidden="true" />
-                          <span>Live</span>
-                        </>
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSyncCameraToPlayers}
-                      title="Pan & zoom Player Screen camera to match your current view"
-                      className="px-2 py-1 border-l border-emerald-500/30 text-slate-700 dark:text-slate-200 hover:bg-emerald-500/15 flex items-center gap-1 transition-colors cursor-pointer"
-                    >
-                      <LocateFixed size={12} aria-hidden="true" />
-                      <span>Sync View</span>
-                    </button>
-                    {mysterySpotlightNodeId && (
-                      <button
-                        type="button"
-                        onClick={() => handleSpotlightNode(mysterySpotlightNodeId)}
-                        title="Reveal full public name & lore for the currently teased Mystery Portrait"
-                        className="px-2 py-1 border-l border-emerald-500/30 bg-purple-600 text-white hover:bg-purple-700 flex items-center gap-1 transition-colors cursor-pointer"
-                      >
-                        <Eye size={12} aria-hidden="true" />
-                        <span>Reveal True Identity</span>
-                      </button>
-                    )}
-                    {hasActiveSpotlight && (
-                      <button
-                        type="button"
-                        onClick={handleClearSpotlight}
-                        title="Clear active Spotlight on Player Screen"
-                        className="px-2 py-1 border-l border-emerald-500/30 bg-amber-500/25 text-amber-900 dark:text-amber-200 hover:bg-amber-500/35 flex items-center gap-1 transition-colors cursor-pointer"
-                      >
-                        <Sparkles size={12} aria-hidden="true" />
-                        <span>Clear Spotlight</span>
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      aria-label="Close Player Screen window"
-                      title="Close 2nd-Screen Player Window"
-                      onClick={handleClosePlayerScreen}
-                      className="px-1.5 py-1 border-l border-emerald-500/30 text-slate-500 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
-                    >
-                      <X size={13} />
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* Undo / Redo (Stationary across DM / Player View for uniform header geometry) */}
-            <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5" />
-            <div className="flex gap-1">
-              <button
-                type="button"
-                aria-disabled={isUndoDisabled}
-                onClick={() => {
-                  if (!isUndoDisabled) undo()
-                }}
-                title="Undo (Ctrl+Z)"
-                aria-label="Undo"
-                className={`p-1.5 min-w-6 min-h-6 bg-slate-100 dark:bg-slate-700 rounded-md transition-colors ${
-                  isUndoDisabled
-                    ? 'opacity-40 cursor-not-allowed'
-                    : 'hover:bg-slate-200 dark:hover:bg-slate-600 cursor-pointer'
-                }`}
-              >
-                <Undo size={15} className="text-slate-700 dark:text-slate-200" />
-              </button>
-              <button
-                type="button"
-                aria-disabled={isRedoDisabled}
-                onClick={() => {
-                  if (!isRedoDisabled) redo()
-                }}
-                title="Redo (Ctrl+Y)"
-                aria-label="Redo"
-                className={`p-1.5 min-w-6 min-h-6 bg-slate-100 dark:bg-slate-700 rounded-md transition-colors ${
-                  isRedoDisabled
-                    ? 'opacity-40 cursor-not-allowed'
-                    : 'hover:bg-slate-200 dark:hover:bg-slate-600 cursor-pointer'
-                }`}
-              >
-                <Redo size={15} className="text-slate-700 dark:text-slate-200" />
-              </button>
-            </div>
-
-            <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5" />
-
-            {/* Unified Command & Search Palette Trigger */}
-            <button
-              type="button"
-              onClick={() => setShowCommandPalette(true)}
-              title="Open Search, #Tags & Studio Command Palette (Ctrl+K / Ctrl+F)"
-              className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
-                searchQuery
-                  ? 'bg-blue-600 text-white hover:bg-blue-700'
-                  : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-              }`}
-            >
-              <Search size={13} aria-hidden="true" />
-              <span className="truncate max-w-28">
-                {searchQuery ? `Filter: ${searchQuery}` : 'Search / Commands'}
-              </span>
-              <kbd
-                className={`text-[10px] font-bold px-1 py-0.2 rounded ${
-                  searchQuery
-                    ? 'bg-blue-700/80 text-blue-100'
-                    : 'bg-white dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-600'
-                }`}
-              >
-                Ctrl+K
-              </kbd>
-            </button>
-
-            <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5" />
-
-            {/* Canvas Theme Selector + Dark Mode + MiniMap Toggle */}
-            <div className="flex items-center gap-1">
-              <div className="relative flex items-center">
-                <Palette
-                  size={13}
-                  className="absolute left-2 text-slate-400 pointer-events-none"
-                />
-                <select
-                  aria-label="Canvas Theme"
-                  value={canvasTheme}
-                  onChange={(e) => setCanvasTheme(e.target.value as CanvasTheme)}
-                  className="pl-6 pr-2 py-1 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium outline-none hover:bg-slate-200 dark:hover:bg-slate-600 cursor-pointer"
-                >
-                  {(Object.keys(THEME_LABELS) as CanvasTheme[]).map((k) => (
-                    <option key={k} value={k}>
-                      {THEME_LABELS[k]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <button
-                type="button"
-                onClick={toggleDarkMode}
-                className="p-1.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-md text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
-                title="Toggle Light / Dark Studio UI"
-                aria-label="Toggle Light or Dark Studio UI"
-              >
-                {isDarkMode ? <Sun size={15} /> : <Moon size={15} />}
-              </button>
-
-              <button
-                type="button"
-                aria-pressed={showMiniMap}
-                onClick={() => setShowMiniMap((v) => !v)}
-                className={`p-1.5 rounded-md transition-colors cursor-pointer ${
-                  showMiniMap
-                    ? 'bg-blue-600 text-white hover:bg-blue-700'
-                    : 'bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200'
-                }`}
-                title="Toggle MiniMap Radar (M)"
-                aria-label="Toggle MiniMap Radar"
-              >
-                <MapIcon size={15} />
-              </button>
-
-              {!isReadOnlyCanvas && (
-                <div className="inline-flex items-center rounded-md overflow-hidden border border-slate-200/80 dark:border-slate-600/80 bg-slate-100 dark:bg-slate-700">
-                  <button
-                    type="button"
-                    aria-pressed={dragSnapEnabled}
-                    aria-label="Toggle Grid Snap"
-                    onClick={() => toggleDragSnap()}
-                    title={
-                      dragSnapEnabled
-                        ? `Grid Snap ON (${dragSnapSize}px) · Click or press G for Free drag · Hold Alt while dragging to bypass`
-                        : `Grid Snap OFF (Free 1px) · Click or press G to restore ${dragSnapSize}px snap · Hold Alt while dragging to snap`
-                    }
-                    className={`p-1.5 min-w-6 min-h-6 flex items-center justify-center transition-colors cursor-pointer ${
-                      dragSnapEnabled
-                        ? 'bg-blue-600 text-white hover:bg-blue-700'
-                        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-                    }`}
-                  >
-                    <Grid3x3 size={14} aria-hidden="true" />
-                  </button>
-                  <select
-                    aria-label="Drag Snap Distance"
-                    value={dragSnapEnabled ? dragSnapSize : 0}
-                    onChange={(e) => setDragSnapOption(Number(e.target.value) as DragSnapOption)}
-                    title="Drag jump & snap distance (Hold Alt while dragging to temporarily invert)"
-                    className="px-1.5 py-1 min-h-6 border-l border-slate-200 dark:border-slate-600 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
-                  >
-                    {DRAG_SNAP_OPTIONS.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {DRAG_SNAP_LABELS[opt].short}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-
-            <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5" />
-
-            {/* File & Share/Export Actions */}
-            <div className="flex items-center gap-1.5">
-              <div className="inline-flex items-center rounded-md overflow-hidden border border-slate-200/80 dark:border-slate-600/80 bg-slate-100 dark:bg-slate-700">
-                <button
-                  type="button"
-                  onClick={() => void handleSave()}
-                  title={
-                    activeFileName
-                      ? `Save to ${activeFileName} (Ctrl+S)`
-                      : 'Save Campaign to .json File (Ctrl+S)'
-                  }
-                  className="px-2.5 py-1 min-h-6 hover:bg-slate-200 dark:hover:bg-slate-600 text-xs font-semibold transition-colors text-slate-700 dark:text-slate-200 flex items-center gap-1 cursor-pointer"
-                >
-                  <Save size={13} aria-hidden="true" />
-                  <span>Save</span>
-                  {isDirty && (
-                    <span
-                      aria-hidden="true"
-                      className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"
-                    />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleSaveAs()}
-                  title="Save Campaign As New .json File… (Ctrl+Shift+S)"
-                  aria-label="Save Campaign As"
-                  className="px-1.5 py-1 min-h-6 border-l border-slate-200 dark:border-slate-600 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 transition-colors flex items-center justify-center cursor-pointer"
-                >
-                  <SaveAll size={13} aria-hidden="true" />
-                </button>
-              </div>
-              <button
-                type="button"
-                onClick={handleLoad}
-                className="px-2.5 py-1 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-md text-xs font-semibold transition-colors text-slate-700 dark:text-slate-200 flex items-center gap-1 cursor-pointer"
-              >
-                <FolderOpen size={13} aria-hidden="true" /> Load
-              </button>
-              {!isPlayerEdition && (
-                <button
-                  type="button"
-                  aria-disabled={isReadOnlyCanvas}
-                  onClick={() => {
-                    if (!isReadOnlyCanvas) handleNewMap()
-                  }}
-                  title={
-                    isReadOnlyCanvas
-                      ? 'Switch to Viewing: DM to start a new map'
-                      : 'Start a new blank campaign map'
-                  }
-                  className={`px-2.5 py-1 min-h-6 bg-slate-100 dark:bg-slate-700 rounded-md text-xs font-semibold transition-colors text-slate-700 dark:text-slate-200 flex items-center gap-1 ${
-                    isReadOnlyCanvas
-                      ? 'opacity-40 cursor-not-allowed'
-                      : 'hover:bg-slate-200 dark:hover:bg-slate-600 cursor-pointer'
-                  }`}
-                >
-                  <FilePlus2 size={13} aria-hidden="true" /> New
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  setShareModalTab(undefined)
-                  setShowShareModal(true)
-                }}
-                title="Export Player .json, Merge Party Notes, Export Dossiers (.md / Obsidian / .pdf) or Map PNG"
-                className="px-2.5 py-1 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-md text-xs font-semibold transition-colors text-slate-700 dark:text-slate-200 flex items-center gap-1 cursor-pointer"
-              >
-                <Share2 size={13} aria-hidden="true" /> Share &amp; Export
-              </button>
-              <button
-                ref={tourTriggerRef}
-                type="button"
-                onClick={() => setShowTour((v) => !v)}
-                title="Interactive 5-Step Studio Feature Tour"
-                aria-expanded={showTour}
-                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer ${
-                  showTour
-                    ? 'bg-indigo-600 text-white hover:bg-indigo-700'
-                    : 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-700/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60'
-                }`}
-              >
-                <Sparkles size={13} aria-hidden="true" /> Tour
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowHelpModal(true)}
-                title="Shortcuts & Tips (?)"
-                aria-label="Shortcuts and Help"
-                className="p-1.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-md text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
-              >
-                <HelpCircle size={15} />
-              </button>
-
-              <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5" />
-
-              {/* Persistent Auto-Save Toggle & Live Save Status */}
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  aria-pressed={autoSaveEnabled}
-                  aria-label="Auto-Save"
-                  onClick={handleToggleAutoSave}
-                  title={
-                    autoSaveEnabled
-                      ? activeFileName
-                        ? `Auto-Save is ON · Saving automatically to ${activeFileName}${lastSavedAt ? ` (last saved ${lastSavedAt})` : ''} · Click to turn off`
-                        : 'Auto-Save is ON · Save once (Ctrl+S) to link a .json file · Click to turn off'
-                      : 'Auto-Save is OFF · Click to enable automatic saving'
-                  }
-                  className="dcc-autosave-toggle px-2 py-0.5 rounded-md text-[11px] font-semibold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-                >
-                  <span>Auto-Save</span>
-                  <span aria-hidden="true" className="dcc-autosave-track">
-                    <span className="dcc-autosave-thumb" />
-                  </span>
-                </button>
-
-                {isDirty && (!autoSaveEnabled || !activeFilePath) && !isSaving ? (
-                  <button
-                    type="button"
-                    onClick={() => void handleSave()}
-                    title={
-                      !activeFilePath && autoSaveEnabled
-                        ? 'Local crash backup saved · Click or press Ctrl+S once to pick a .json file for Auto-Save'
-                        : 'You have unsaved changes · Click or press Ctrl+S to save now'
-                    }
-                    className="px-2 py-0.5 min-h-6 rounded-md text-[11px] font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amber-800 dark:text-amber-300 border border-amber-500/40 whitespace-nowrap cursor-pointer transition-colors"
-                  >
-                    {!activeFilePath && autoSaveEnabled ? 'Pick file (Ctrl+S)' : 'Unsaved'}
-                  </button>
-                ) : saveStatus ? (
-                  <span
-                    title={
-                      activeFileName
-                        ? `${activeFileName}${lastSavedAt ? ` · Last saved ${lastSavedAt}` : ''}`
-                        : undefined
-                    }
-                    className={`text-[11px] font-medium whitespace-nowrap px-1 ${
-                      saveStatus === 'Save failed' || saveStatus === 'Invalid file format'
-                        ? 'text-red-600 dark:text-red-400 font-semibold'
-                        : saveStatus === 'Unsaved…' || saveStatus === 'Saving…'
-                          ? 'text-amber-700 dark:text-amber-300'
-                          : 'text-slate-600 dark:text-slate-300'
-                    }`}
-                  >
-                    {saveStatus}
-                  </span>
-                ) : null}
-
-                <span role="status" aria-live="polite" className="sr-only">
-                  {politeSaveAnnouncement}
-                </span>
-              </div>
-            </div>
-          </header>
-
           {/* Optional Pinned Search Filter Pill */}
           {searchQuery.trim() && (
-            <div className="shrink-0 pointer-events-auto bg-blue-600 text-white shadow-md rounded-lg px-2.5 py-1 flex items-center gap-1.5 text-xs font-semibold">
+            <div className="shrink-0 pointer-events-auto bg-sky-600 text-white shadow-md rounded-lg px-2.5 py-1 flex items-center gap-1.5 text-xs font-semibold">
               <Search size={12} aria-hidden="true" />
               <span className="max-w-44 truncate">Filter: {searchQuery}</span>
-              <span className="px-1.5 py-0.2 rounded bg-blue-800/80 text-[10px] font-bold">
+              <span className="px-1.5 py-0.2 rounded bg-sky-800/80 text-[10px] font-bold">
                 {matchedNodeIds.length > 0
                   ? `${(searchMatchIndex % matchedNodeIds.length) + 1} / ${matchedNodeIds.length}`
                   : '0 nodes'}
               </span>
               {matchedNodeIds.length > 0 && (
-                <div className="inline-flex items-center border-l border-blue-400/40 pl-1 gap-0.5">
+                <div className="inline-flex items-center border-l border-sky-400/40 pl-1 gap-0.5">
                   <button
                     type="button"
                     onClick={() => stepSearchMatch(-1)}
                     title="Previous matching entity"
                     aria-label="Previous matching entity"
-                    className="p-0.5 rounded hover:bg-blue-500 cursor-pointer"
+                    className="p-0.5 rounded hover:bg-sky-500 cursor-pointer"
                   >
                     <ChevronUp size={13} />
                   </button>
@@ -2415,7 +2742,7 @@ function FlowCanvas() {
                     onClick={() => stepSearchMatch(1)}
                     title="Next matching entity"
                     aria-label="Next matching entity"
-                    className="p-0.5 rounded hover:bg-blue-500 cursor-pointer"
+                    className="p-0.5 rounded hover:bg-sky-500 cursor-pointer"
                   >
                     <ChevronDown size={13} />
                   </button>
@@ -2426,69 +2753,104 @@ function FlowCanvas() {
                 onClick={() => applyPinnedFilter('')}
                 title="Clear canvas filter (Esc)"
                 aria-label="Clear canvas filter"
-                className="p-0.5 rounded hover:bg-blue-500 ml-0.5 cursor-pointer"
+                className="p-0.5 rounded hover:bg-sky-500 ml-0.5 cursor-pointer"
               >
                 <X size={13} />
               </button>
             </div>
           )}
 
-          {/* Collapsible Legend & Filters */}
+          {/* Collapsible Compact Legend & Filters */}
           <div className="pointer-events-auto min-h-0 flex flex-col">
             <Legend />
           </div>
         </div>
 
-        {/* Bottom-Left Focus Web — Docked Immediately Right of Zoom Controls */}
+        {/* Bottom-Left Focus Web — 1-Click Hop Pills Docked Beside Zoom Controls */}
         {selectedNodes.length === 1 && selectedNode && (
           <div
             style={{ left: showMiniMap ? 258 : 54, bottom: 16 }}
-            className="no-export absolute z-10 bg-white/95 dark:bg-slate-800/95 backdrop-blur shadow-lg rounded-lg px-3 py-2.5 border border-slate-200 dark:border-slate-700 w-60 flex flex-col gap-2 pointer-events-auto"
+            className="no-export absolute z-10 dcc-surface-panel backdrop-blur-md shadow-xl rounded-xl px-3 py-2.5 border w-64 flex flex-col gap-2 pointer-events-auto"
           >
-            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-700 pb-1.5">
-              <h3 className="font-bold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-200">
+            <div className="flex justify-between items-center gap-2 border-b border-slate-200/80 dark:border-slate-700/60 pb-1.5">
+              <h3 className="font-bold text-[11px] uppercase tracking-wider text-slate-600 dark:text-slate-300 shrink-0">
                 Focus Web
               </h3>
-              <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-1.5 py-0.5 rounded truncate max-w-28">
+              <span
+                title={selectedNode.data.label}
+                className="text-[10px] font-bold text-sky-700 dark:text-sky-300 bg-sky-500/12 dark:bg-sky-500/20 px-1.5 py-0.5 rounded truncate max-w-32"
+              >
                 {selectedNode.data.label}
               </span>
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                Degrees of Separation
-              </label>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center justify-between gap-1.5">
+                <div
+                  role="group"
+                  aria-label="Focus Web hop distance"
+                  className="inline-flex rounded-md border border-slate-300/80 dark:border-slate-700 overflow-hidden text-[11px] font-semibold"
+                >
+                  {([1, 2, 3, ''] as Array<number | ''>).map((hop) => {
+                    const active = degrees === hop
+                    return (
+                      <button
+                        key={String(hop || 'all')}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => setDegrees(hop)}
+                        className={`px-2 py-1 min-h-6 transition-colors cursor-pointer ${
+                          active
+                            ? 'bg-sky-600 text-white'
+                            : 'bg-white dark:bg-[#172342] text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#1f2e54]'
+                        }`}
+                      >
+                        {hop === '' ? 'All' : `${hop}`}
+                      </button>
+                    )
+                  })}
+                </div>
                 <input
                   type="number"
                   min="0"
                   max="10"
+                  title="Custom hop distance (0–10)"
+                  aria-label="Custom degrees of separation"
                   value={degrees}
                   onChange={(e) =>
                     setDegrees(e.target.value === '' ? '' : parseInt(e.target.value, 10))
                   }
-                  className="border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 dark:text-slate-200 rounded px-2 py-1 text-xs w-16 outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="All"
+                  className="dcc-surface-input border rounded-md px-1.5 py-1 text-[11px] w-14 text-center tabular-nums placeholder-slate-400"
+                  placeholder="0–10"
                 />
-                <div className="flex rounded border border-slate-300 dark:border-slate-600 overflow-hidden text-[11px] font-semibold">
+              </div>
+
+              <div className="flex items-center justify-between gap-2">
+                <div
+                  role="group"
+                  aria-label="Non-matching card visibility"
+                  className="inline-flex rounded-md border border-slate-300/80 dark:border-slate-700 overflow-hidden text-[11px] font-semibold"
+                >
                   <button
                     type="button"
+                    aria-pressed={degreeMode === 'fade'}
                     onClick={() => setDegreeMode('fade')}
-                    className={`px-2 py-1 cursor-pointer ${
+                    className={`px-2.5 py-0.5 min-h-6 cursor-pointer transition-colors ${
                       degreeMode === 'fade'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                        ? 'bg-sky-600 text-white'
+                        : 'bg-white dark:bg-[#172342] text-slate-600 dark:text-slate-300'
                     }`}
                   >
-                    Fade
+                    Fade Others
                   </button>
                   <button
                     type="button"
+                    aria-pressed={degreeMode === 'hide'}
                     onClick={() => setDegreeMode('hide')}
-                    className={`px-2 py-1 cursor-pointer ${
+                    className={`px-2.5 py-0.5 min-h-6 border-l border-slate-300/80 dark:border-slate-700 cursor-pointer transition-colors ${
                       degreeMode === 'hide'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                        ? 'bg-sky-600 text-white'
+                        : 'bg-white dark:bg-[#172342] text-slate-600 dark:text-slate-300'
                     }`}
                   >
                     Hide
@@ -2498,7 +2860,7 @@ function FlowCanvas() {
                   <button
                     type="button"
                     onClick={() => setDegrees('')}
-                    className="text-xs text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                    className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
                   >
                     Reset
                   </button>
@@ -2530,79 +2892,83 @@ function FlowCanvas() {
             setDegrees(deg)
           }}
           activeFocusDegrees={degrees}
-          onFitView={() => fitView({ padding: 0.16, duration: 350 })}
+          onFitView={() => fitView({ padding: 0.14, maxZoom: 1.15, duration: 350 })}
         />
         </div>
 
-        {/* Dedicated Very-Bottom Studio Bar: Campaign Timeline (Left) + Views / BookmarksBar (Right) */}
-        {showBottomStudioBar && (
-          <footer
-            aria-label="Campaign Timeline and Views"
-            style={{
-              paddingRight: hasInspectorOpen
-                ? showSidebarInspector
-                  ? '22.75rem'
-                  : '21.75rem'
-                : undefined
-            }}
-            className="no-export shrink-0 z-20 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 px-3 py-1.5 flex items-center gap-3 min-w-0 motion-safe:transition-[padding-right] motion-safe:duration-150"
-          >
-            <TimelineBar diffStats={diffStats} />
-            <BookmarksBar
-              readOnly={isReadOnlyCanvas || isPlayerEdition}
-              isPlayerScreenOpen={isPlayerScreenOpen}
-              onSyncBookmarkToPlayerScreen={
-                !isPlayerEdition ? handleSyncBookmarkToPlayers : undefined
+        {/* Row 2.5: Non-Colliding Full-Width Docked Session Timeline Tray */}
+        <SessionTimelineTray
+          open={timelineExpanded}
+          onClose={() => setTimelineExpanded(false)}
+          onRequestCreateSnapshot={() => setTimelineCreateTick((n) => n + 1)}
+        />
+        </div>
+
+        {/* Docked Right-Hand Inspector Rail (Flex Sibling — Zero Header/Footer Overlap) */}
+        {showSidebarInspector ? (
+          <Sidebar
+            className="no-export"
+            onNavigateToNode={navigateToNode}
+            onSpotlightNode={!isPlayerEdition ? handleSpotlightNode : undefined}
+            onMysterySpotlightNode={!isPlayerEdition ? handleMysterySpotlightNode : undefined}
+            onSpotlightEdge={!isPlayerEdition ? handleSpotlightEdge : undefined}
+            onFilterByTag={(tag) => applyPinnedFilter(`#${tag}`)}
+            onRequestDeleteGroupWithContents={(gId) => setPendingDeleteGroupId(gId)}
+          />
+        ) : (
+          <PlayerInspector
+            selectedNode={selectedNodes.length === 1 ? selectedNode : undefined}
+            selectedEdge={selectedNodes.length === 0 ? selectedEdge : undefined}
+            allNodes={baseNodes}
+            allEdges={baseEdges}
+            isPlayerView={hideSecrets}
+            isSnapshotPreview={isSnapshotPreview}
+            diffEntries={selectedDiffEntries}
+            diffCompareLabel={diffCompareTarget.label}
+            editablePartyNotes={isPlayerEdition && !isSnapshotPreview}
+            onCommitPartyNotesStart={() => useStore.getState().pushHistory(false)}
+            onUpdateNodePartyNotes={(id, partyNotes) => updateNodeData(id, { partyNotes })}
+            onUpdateEdgePartyNotes={(id, partyNotes) => updateEdgeData(id, { partyNotes })}
+            onFilterByTag={(tag) => applyPinnedFilter(`#${tag}`)}
+            onSelectEdge={navigateToEdge}
+            onNavigateToNode={navigateToNode}
+            onClose={() => {
+              if (isSnapshotPreview) {
+                setPreviewSelection(null)
+              } else {
+                if (selectedNode) {
+                  onNodesChange([{ id: selectedNode.id, type: 'select', selected: false }])
+                }
+                if (selectedEdge) {
+                  onEdgesChange([{ id: selectedEdge.id, type: 'select', selected: false }])
+                }
               }
-            />
-          </footer>
+            }}
+          />
         )}
       </div>
 
-      {/* Right-Hand Inspector Routing:
-          - Snapshot Preview or DM's Player View: Read-Only PlayerInspector
-          - Player Edition on canonical DM items: PlayerInspector with editable Party Notes
-          - Player Edition on Theory Pins/Links OR DM Live View (incl. Multi-Select!): Sidebar */}
-      {showSidebarInspector ? (
-        <Sidebar
-          className="no-export"
-          onNavigateToNode={navigateToNode}
-          onSpotlightNode={!isPlayerEdition ? handleSpotlightNode : undefined}
-          onMysterySpotlightNode={!isPlayerEdition ? handleMysterySpotlightNode : undefined}
-          onSpotlightEdge={!isPlayerEdition ? handleSpotlightEdge : undefined}
-          onFilterByTag={(tag) => applyPinnedFilter(`#${tag}`)}
-          onRequestDeleteGroupWithContents={(gId) => setPendingDeleteGroupId(gId)}
-        />
-      ) : (
-        <PlayerInspector
-          selectedNode={selectedNodes.length === 1 ? selectedNode : undefined}
-          selectedEdge={selectedNodes.length === 0 ? selectedEdge : undefined}
-          allNodes={baseNodes}
-          allEdges={baseEdges}
-          isPlayerView={hideSecrets}
-          isSnapshotPreview={isSnapshotPreview}
-          diffEntries={selectedDiffEntries}
-          diffCompareLabel={diffCompareTarget.label}
-          editablePartyNotes={isPlayerEdition && !isSnapshotPreview}
-          onCommitPartyNotesStart={() => useStore.getState().pushHistory(false)}
-          onUpdateNodePartyNotes={(id, partyNotes) => updateNodeData(id, { partyNotes })}
-          onUpdateEdgePartyNotes={(id, partyNotes) => updateEdgeData(id, { partyNotes })}
-          onFilterByTag={(tag) => applyPinnedFilter(`#${tag}`)}
-          onSelectEdge={navigateToEdge}
-          onNavigateToNode={navigateToNode}
-          onClose={() => {
-            if (isSnapshotPreview) {
-              setPreviewSelection(null)
-            } else {
-              if (selectedNode) {
-                onNodesChange([{ id: selectedNode.id, type: 'select', selected: false }])
-              }
-              if (selectedEdge) {
-                onEdgesChange([{ id: selectedEdge.id, type: 'select', selected: false }])
-              }
+      {/* Row 3: Dedicated Full-Width 36px Bottom Studio Bar */}
+      {showBottomStudioBar && (
+        <footer
+          aria-label="Campaign Timeline and Views"
+          className="no-export shrink-0 h-9 z-20 dcc-chrome-bar border-t px-3 flex items-center gap-3 min-w-0"
+        >
+          <TimelineBar
+            diffStats={diffStats}
+            expanded={timelineExpanded}
+            onExpandedChange={setTimelineExpanded}
+            hideInlineDrawer
+            createRequestTick={timelineCreateTick}
+          />
+          <BookmarksBar
+            readOnly={isReadOnlyCanvas || isPlayerEdition}
+            isPlayerScreenOpen={isPlayerScreenOpen}
+            onSyncBookmarkToPlayerScreen={
+              !isPlayerEdition ? handleSyncBookmarkToPlayers : undefined
             }
-          }}
-        />
+          />
+        </footer>
       )}
 
       {/* Unified Command & Search Palette (Ctrl+K / Ctrl+F) */}
@@ -2654,7 +3020,7 @@ function FlowCanvas() {
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs font-bold tracking-tight">Dice Chaos Connections</span>
                   <span className="px-1.5 py-0.2 rounded text-[10px] font-bold tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                    v1.0.0
+                    v1.0.1
                   </span>
                 </div>
                 <div className="text-[11px] text-slate-400">
@@ -2681,6 +3047,17 @@ function FlowCanvas() {
                 className="text-emerald-300 hover:text-emerald-200 underline underline-offset-2"
               >
                 Dice Chaos Display
+              </a>
+              <span className="text-slate-600" aria-hidden="true">
+                •
+              </span>
+              <a
+                href="https://github.com/dicechaos/DiceChaosMaps"
+                target="_blank"
+                rel="noreferrer"
+                className="text-orange-300 hover:text-orange-200 underline underline-offset-2"
+              >
+                Dice Chaos Maps
               </a>
               <span className="text-slate-600" aria-hidden="true">
                 •
@@ -2807,6 +3184,7 @@ function FlowCanvas() {
         onClose={() => setShowTour(false)}
         triggerRef={tourTriggerRef}
         hasInspectorOpen={hasInspectorOpen}
+        timelineExpanded={timelineExpanded}
         isHobbitStarter={nodes.some((n) => n.id === 'node-bilbo')}
         isPlayerEdition={isPlayerEdition}
         isPlayerView={isPlayerView}

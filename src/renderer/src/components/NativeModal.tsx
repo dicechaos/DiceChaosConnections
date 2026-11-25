@@ -83,9 +83,9 @@ export function NativeModal({
       ref={dialogRef}
       aria-labelledby={titleId}
       {...({ closedby: lightDismiss ? 'any' : 'closerequest' } as any)}
-      className={`no-export m-auto w-[92vw] ${maxWidthClass} rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 shadow-2xl p-0 open:flex open:flex-col`}
+      className={`no-export m-auto w-[92vw] ${maxWidthClass} rounded-xl border dcc-surface-panel text-slate-800 dark:text-slate-100 shadow-2xl p-0 open:flex open:flex-col overflow-hidden`}
     >
-      <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/60">
+      <div className="flex items-center justify-between px-5 py-3.5 border-b dcc-chrome-bar">
         <h2 id={titleId} className="text-base font-bold text-slate-800 dark:text-slate-100">
           {title}
         </h2>
@@ -93,12 +93,14 @@ export function NativeModal({
           type="button"
           aria-label="Close dialog"
           onClick={() => dialogRef.current?.close()}
-          className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-colors"
+          className="p-1 rounded-md text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-colors cursor-pointer"
         >
           <X size={18} />
         </button>
       </div>
-      <div className="p-5 overflow-y-auto max-h-[80vh]">{children}</div>
+      <div className="p-5 overflow-y-auto overscroll-contain dcc-scroll-y dcc-scroll-shadow max-h-[80vh]">
+        {children}
+      </div>
     </dialog>
   )
 }

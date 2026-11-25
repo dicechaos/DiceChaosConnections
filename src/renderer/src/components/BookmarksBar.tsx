@@ -146,7 +146,7 @@ export default function BookmarksBar({
         <span>Views</span>
       </span>
 
-      <div className="flex items-center gap-1 overflow-x-auto min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [scroll-snap-type:inline_proximity]">
+      <div className="dcc-scroll-fade-x flex items-center gap-1 min-w-0 [scroll-snap-type:inline_proximity]">
         {visibleBookmarks.map((bm, idx) => {
           const isSelectedForEdit = editingId === bm.id
           return (
@@ -154,8 +154,8 @@ export default function BookmarksBar({
               key={bm.id}
               className={`shrink-0 [scroll-snap-align:start] inline-flex items-center rounded-md border text-xs transition-colors ${
                 isSelectedForEdit
-                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-200'
-                  : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/70 hover:bg-slate-100 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200'
+                  ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-200'
+                  : 'border-slate-200/90 dark:border-slate-700/70 bg-slate-50/90 dark:bg-[#172342]/80 hover:bg-slate-100 dark:hover:bg-[#1f2e54] text-slate-700 dark:text-slate-200'
               }`}
             >
               <button
@@ -231,7 +231,7 @@ export default function BookmarksBar({
 
       {/* Upward Add View Popover Card */}
       {canEdit && isAdding && (
-        <div className="absolute bottom-full right-0 mb-2 z-30 bg-white dark:bg-slate-800 shadow-2xl rounded-lg p-2.5 border border-slate-200 dark:border-slate-700 flex flex-wrap items-center gap-2 text-xs w-max max-w-[calc(100dvw-2rem)]">
+        <div className="absolute bottom-full right-0 mb-2 z-30 dcc-surface-panel shadow-2xl rounded-xl p-2.5 border flex flex-wrap items-center gap-2 text-xs w-max max-w-[calc(100dvw-2rem)]">
           <input
             type="text"
             autoFocus
@@ -242,7 +242,7 @@ export default function BookmarksBar({
               if (e.key === 'Escape') setIsAdding(false)
             }}
             placeholder={`e.g. Region ${cameraBookmarks.length + 1}...`}
-            className="border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-xs bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-blue-500 w-44"
+            className="dcc-surface-input border rounded-md px-2 py-1 text-xs w-44"
           />
           <label className="inline-flex items-center gap-1 text-[11px] text-slate-600 dark:text-slate-300 cursor-pointer select-none">
             <input
@@ -273,7 +273,7 @@ export default function BookmarksBar({
 
       {/* Upward Manage Bookmark Popover Card */}
       {canEdit && editingBookmark && (
-        <div className="absolute bottom-full right-0 mb-2 z-30 bg-white dark:bg-slate-800 shadow-2xl rounded-lg p-2.5 border border-slate-200 dark:border-slate-700 flex flex-wrap items-center gap-2 text-xs w-max max-w-[calc(100dvw-2rem)]">
+        <div className="absolute bottom-full right-0 mb-2 z-30 dcc-surface-panel shadow-2xl rounded-xl p-2.5 border flex flex-wrap items-center gap-2 text-xs w-max max-w-[calc(100dvw-2rem)]">
           <input
             type="text"
             value={editLabel}
@@ -285,7 +285,7 @@ export default function BookmarksBar({
               }
               if (e.key === 'Escape') setEditingId(null)
             }}
-            className="border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-xs bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-blue-500 w-40"
+            className="dcc-surface-input border rounded-md px-2 py-1 text-xs w-40"
           />
           <button
             type="button"

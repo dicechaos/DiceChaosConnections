@@ -114,7 +114,7 @@ export default function SpotlightOverlay({
           </button>
         </div>
 
-        <div className="p-5 flex flex-col gap-4 max-h-[82vh] overflow-y-auto overscroll-contain [scrollbar-gutter:stable] [&>*]:shrink-0">
+        <div className="p-5 flex flex-col gap-4 max-h-[82vh] overflow-y-auto overscroll-contain dcc-scroll-y [scrollbar-gutter:stable] [&>*]:shrink-0">
           <div className="w-full rounded-xl overflow-clip shrink-0 border border-slate-800 bg-black max-h-[62vh] flex items-center justify-center shadow-inner">
             <img
               src={mysteryPortrait.portrait}
@@ -149,7 +149,7 @@ export default function SpotlightOverlay({
         ref={dialogRef}
         aria-labelledby={titleId}
         {...({ closedby: 'any' } as any)}
-        className="m-auto w-[92vw] max-w-lg rounded-2xl border-2 border-amber-400/80 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-[0_24px_64px_rgba(0,0,0,0.55)] p-0 open:flex open:flex-col overflow-hidden"
+        className="m-auto w-[92vw] max-w-lg rounded-2xl border-2 border-amber-400/80 dcc-surface-panel text-slate-900 dark:text-slate-100 shadow-[0_24px_64px_rgba(0,0,0,0.55)] p-0 open:flex open:flex-col overflow-hidden"
       >
         <div className="px-5 py-3.5 bg-gradient-to-r from-amber-500/15 via-amber-400/10 to-transparent border-b border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
@@ -173,7 +173,7 @@ export default function SpotlightOverlay({
           </button>
         </div>
 
-        <div className="p-5 flex flex-col gap-4 max-h-[78vh] overflow-y-auto overscroll-contain [scrollbar-gutter:stable] [&>*]:shrink-0">
+        <div className="p-5 flex flex-col gap-4 max-h-[78vh] overflow-y-auto overscroll-contain dcc-scroll-y dcc-scroll-shadow [scrollbar-gutter:stable] [&>*]:shrink-0">
           <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-bold">
             <span className="truncate">{sourceNode?.data.label || 'Entity'}</span>
             <ArrowRight size={16} className="text-amber-500 shrink-0" aria-hidden="true" />
@@ -262,7 +262,7 @@ export default function SpotlightOverlay({
       ref={dialogRef}
       aria-labelledby={titleId}
       {...({ closedby: 'any' } as any)}
-      className="m-auto w-[92vw] max-w-xl rounded-2xl border-2 border-amber-400/85 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-[0_24px_64px_rgba(0,0,0,0.6)] p-0 open:flex open:flex-col overflow-hidden"
+      className="m-auto w-[92vw] max-w-xl rounded-2xl border-2 border-amber-400/85 dcc-surface-panel text-slate-900 dark:text-slate-100 shadow-[0_24px_64px_rgba(0,0,0,0.6)] p-0 open:flex open:flex-col overflow-hidden"
     >
       <div className="px-5 py-3.5 bg-gradient-to-r from-amber-500/15 via-amber-400/10 to-transparent border-b border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
@@ -298,7 +298,7 @@ export default function SpotlightOverlay({
         </button>
       </div>
 
-      <div className="p-5 flex flex-col gap-4 max-h-[80vh] overflow-y-auto overscroll-contain [scrollbar-gutter:stable] [&>*]:shrink-0">
+      <div className="p-5 flex flex-col gap-4 max-h-[80vh] overflow-y-auto overscroll-contain dcc-scroll-y dcc-scroll-shadow [scrollbar-gutter:stable] [&>*]:shrink-0">
         {(d.statusIcons || []).length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
             {(d.statusIcons || []).map((s) => {

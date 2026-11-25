@@ -23,7 +23,7 @@ import GroupNode, { resolveGroupTint } from './nodes/GroupNode'
 import CustomEdge from './edges/CustomEdge'
 import Legend from './Legend'
 import PlayerInspector from './PlayerInspector'
-import TimelineBar from './TimelineBar'
+import TimelineBar, { SessionTimelineTray } from './TimelineBar'
 import BookmarksBar from './BookmarksBar'
 import CommandPaletteModal, { QuickCommandAction } from './CommandPaletteModal'
 import SpotlightOverlay from './SpotlightOverlay'
@@ -124,6 +124,7 @@ function PlayerScreenCanvas() {
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [showMiniMap, setShowMiniMap] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [timelineExpanded, setTimelineExpanded] = useState(false)
   const [previewSelection, setPreviewSelection] = useState<{
     nodeId?: string
     edgeId?: string
@@ -623,49 +624,196 @@ function PlayerScreenCanvas() {
   const showBottomPlayerBar = hasVisibleBookmarks || hasVisibleTimeline
 
   return (
-    <div className="w-full h-screen flex relative overflow-hidden bg-slate-50 dark:bg-slate-900">
-      <div className="flex-1 min-w-0 h-full flex flex-col relative overflow-hidden">
-        <div className={`flex-1 min-h-0 relative canvas-theme-${canvasTheme}`}>
-        <ReactFlow
-          nodes={renderedNodes}
-          edges={finalEdges}
-          onNodesChange={(changes) => {
-            if (isSnapshotPreview) {
-              const sel = changes.find((c) => c.type === 'select' && c.selected)
-              if (sel && 'id' in sel) setPreviewSelection({ nodeId: sel.id })
-              return
-            }
-            onNodesChange(changes)
-          }}
-          onEdgesChange={(changes) => {
-            if (isSnapshotPreview) {
-              const sel = changes.find((c) => c.type === 'select' && c.selected)
-              if (sel && 'id' in sel) setPreviewSelection({ edgeId: sel.id })
-              return
-            }
-            onEdgesChange(changes)
-          }}
-          onPaneClick={() => {
-            if (isSnapshotPreview) setPreviewSelection(null)
-          }}
-          nodeTypes={memoizedNodeTypes}
-          edgeTypes={memoizedEdgeTypes}
-          connectionMode={ConnectionMode.Loose}
-          elevateNodesOnSelect={false}
-          elevateEdgesOnSelect={false}
-          edgesReconnectable={false}
-          nodesDraggable={false}
-          nodesConnectable={false}
-          zoomOnDoubleClick={true}
-          selectionOnDrag={false}
-          panOnDrag={[1, 2]}
-          minZoom={0.05}
-          maxZoom={4}
-          proOptions={{ hideAttribution: true }}
-          defaultEdgeOptions={{
-            type: 'dndEdge'
-          }}
-        >
+    <div className="w-full h-screen flex flex-col overflow-hidden bg-[var(--dcc-void)]">
+      {/* Row 1: Docked 44px Single-Row Player TV Header */}
+      <header
+        role="toolbar"
+        aria-label="Player Screen controls"
+        className="shrink-0 min-h-11 dcc-chrome-bar border-b px-3 py-1 flex items-center gap-2 z-30 select-none"
+      >
+        <AppLogoIcon size={22} />
+
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-wider shrink-0">
+          <MonitorPlay size={11} aria-hidden="true" />
+          Player Screen
+        </span>
+
+        <h1 className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate max-w-64 px-1">
+          {hasReceivedSync ? campaignTitle : 'Connecting to DM Table...'}
+        </h1>
+
+        {(spotlightTarget || mysterySpotlight) && !showSpotlightCard && (
+          <button
+            type="button"
+            onClick={() => {
+              setShowSpotlightCard(true)
+              if (spotlightTarget) {
+                centerOnSpotlight(spotlightTarget.targetType, spotlightTarget.id)
+              }
+            }}
+            className="px-2.5 py-1 min-h-7 rounded-md bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+          >
+            <Sparkles size={13} aria-hidden="true" />
+            <span>Show Spotlight</span>
+          </button>
+        )}
+
+        <div className="ms-auto flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => setShowCommandPalette(true)}
+            title="Search known lore, aliases & #tags (Ctrl+K / Ctrl+F)"
+            className={`px-2.5 py-1 min-h-7 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+              searchQuery
+                ? 'bg-sky-600 text-white hover:bg-sky-700'
+                : 'bg-slate-200/70 dark:bg-[#172342] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-[#1f2e54]'
+            }`}
+          >
+            <Search size={13} aria-hidden="true" />
+            <span className="truncate max-w-32">
+              {searchQuery ? `Filter: ${searchQuery}` : 'Search Lore'}
+            </span>
+            <kbd
+              className={`text-[10px] font-bold px-1 py-0.2 rounded ${
+                searchQuery
+                  ? 'bg-sky-700/80 text-sky-100'
+                  : 'bg-white/90 dark:bg-[#0a1022] text-slate-500 dark:text-slate-400 border border-slate-300/70 dark:border-slate-700'
+              }`}
+            >
+              Ctrl+K
+            </kbd>
+          </button>
+
+          <span
+            role="separator"
+            aria-orientation="vertical"
+            className="w-px h-5 bg-slate-300/80 dark:bg-slate-700/70 mx-0.5"
+          />
+
+          <div className="relative flex items-center">
+            <Palette
+              size={13}
+              aria-hidden="true"
+              className="absolute left-2 text-slate-500 dark:text-slate-400 pointer-events-none"
+            />
+            <select
+              aria-label="Canvas Theme"
+              value={canvasTheme}
+              onChange={(e) => {
+                localThemeOverrideRef.current = true
+                setCanvasTheme(e.target.value as CanvasTheme)
+              }}
+              className="pl-6 pr-2 py-1 min-h-7 rounded-md bg-slate-200/70 dark:bg-[#172342] text-slate-700 dark:text-slate-200 text-xs font-medium hover:bg-slate-200 dark:hover:bg-[#1f2e54] cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
+            >
+              {(Object.keys(THEME_LABELS) as CanvasTheme[]).map((k) => (
+                <option key={k} value={k}>
+                  {THEME_LABELS[k]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            type="button"
+            onClick={toggleDarkMode}
+            title="Toggle Light / Dark UI"
+            aria-label="Toggle Light or Dark UI"
+            className="p-1.5 min-w-7 min-h-7 bg-slate-200/70 dark:bg-[#172342] hover:bg-slate-200 dark:hover:bg-[#1f2e54] rounded-md text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+          >
+            {isDarkMode ? <Sun size={14} aria-hidden="true" /> : <Moon size={14} aria-hidden="true" />}
+          </button>
+
+          <button
+            type="button"
+            aria-pressed={showMiniMap}
+            onClick={() => setShowMiniMap((v) => !v)}
+            title="Toggle MiniMap Radar (M)"
+            aria-label="Toggle MiniMap Radar"
+            className={`p-1.5 min-w-7 min-h-7 rounded-md transition-colors cursor-pointer ${
+              showMiniMap
+                ? 'bg-sky-600 text-white hover:bg-sky-700'
+                : 'bg-slate-200/70 dark:bg-[#172342] hover:bg-slate-200 dark:hover:bg-[#1f2e54] text-slate-700 dark:text-slate-200'
+            }`}
+          >
+            <MapIcon size={14} aria-hidden="true" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => fitView({ padding: 0.14, maxZoom: 1.15, duration: 350 })}
+            title="Fit Entire Map"
+            className="px-2 py-1 min-h-7 bg-slate-200/70 dark:bg-[#172342] hover:bg-slate-200 dark:hover:bg-[#1f2e54] rounded-md text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1 transition-colors cursor-pointer"
+          >
+            <LocateFixed size={13} aria-hidden="true" /> Fit
+          </button>
+
+          <button
+            type="button"
+            onClick={async () => {
+              const res = await window.api.toggleWindowFullscreen?.()
+              if (res) setIsFullscreen(res.isFullScreen)
+            }}
+            title="Toggle Fullscreen (F11)"
+            className="px-2 py-1 min-h-7 bg-slate-200/70 dark:bg-[#172342] hover:bg-slate-200 dark:hover:bg-[#1f2e54] rounded-md text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1 transition-colors cursor-pointer"
+          >
+            {isFullscreen ? (
+              <>
+                <Minimize2 size={13} aria-hidden="true" /> Exit
+              </>
+            ) : (
+              <>
+                <Maximize2 size={13} aria-hidden="true" /> Fullscreen
+              </>
+            )}
+          </button>
+        </div>
+      </header>
+
+      {/* Row 2: Main Canvas + Optional Timeline Tray + Docked Right Player Inspector */}
+      <div className="flex-1 min-h-0 flex relative overflow-hidden">
+        <div className="flex-1 min-w-0 h-full flex flex-col relative overflow-hidden">
+          <div className={`flex-1 min-h-0 relative canvas-theme-${canvasTheme}`}>
+            <ReactFlow
+              nodes={renderedNodes}
+              edges={finalEdges}
+              onNodesChange={(changes) => {
+                if (isSnapshotPreview) {
+                  const sel = changes.find((c) => c.type === 'select' && c.selected)
+                  if (sel && 'id' in sel) setPreviewSelection({ nodeId: sel.id })
+                  return
+                }
+                onNodesChange(changes)
+              }}
+              onEdgesChange={(changes) => {
+                if (isSnapshotPreview) {
+                  const sel = changes.find((c) => c.type === 'select' && c.selected)
+                  if (sel && 'id' in sel) setPreviewSelection({ edgeId: sel.id })
+                  return
+                }
+                onEdgesChange(changes)
+              }}
+              onPaneClick={() => {
+                if (isSnapshotPreview) setPreviewSelection(null)
+              }}
+              nodeTypes={memoizedNodeTypes}
+              edgeTypes={memoizedEdgeTypes}
+              connectionMode={ConnectionMode.Loose}
+              elevateNodesOnSelect={false}
+              elevateEdgesOnSelect={false}
+              edgesReconnectable={false}
+              nodesDraggable={false}
+              nodesConnectable={false}
+              zoomOnDoubleClick={true}
+              selectionOnDrag={false}
+              panOnDrag={[1, 2]}
+              minZoom={0.05}
+              maxZoom={4}
+              fitViewOptions={{ padding: 0.14, maxZoom: 1.15 }}
+              proOptions={{ hideAttribution: true }}
+              defaultEdgeOptions={{
+                type: 'dndEdge'
+              }}
+            >
           <Background
             variant={bgConfig.variant}
             gap={bgConfig.gap}
@@ -738,165 +886,29 @@ function PlayerScreenCanvas() {
           )}
         </ReactFlow>
 
-        {/* Non-Overlapping Top-Left Stack: Header -> Pinned Filter -> Legend */}
+        {/* Non-Overlapping Top-Left Canvas Stack: Pinned Filter -> Compact Legend */}
         <div
-          className={`absolute top-3 left-4 z-10 flex flex-col items-start gap-2 ${
-            showMiniMap ? 'max-h-[calc(100%-176px)]' : 'max-h-[calc(100%-148px)]'
-          } pointer-events-none max-w-[calc(100%-32px)]`}
+          className={`absolute top-3 left-3 z-10 flex flex-col items-start gap-2 ${
+            showMiniMap ? 'max-h-[calc(100%-176px)]' : 'max-h-[calc(100%-144px)]'
+          } pointer-events-none max-w-[calc(100%-24px)]`}
         >
-          {/* Clean Player Screen Header */}
-          <header className="pointer-events-auto shrink-0 bg-white/95 dark:bg-slate-800/95 backdrop-blur shadow-lg rounded-xl px-3 py-1.5 flex flex-wrap items-center gap-2 border border-slate-200 dark:border-slate-700 max-w-full">
-            <AppLogoIcon size={22} />
-
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-wider">
-              <MonitorPlay size={11} aria-hidden="true" />
-              Player Screen
-            </span>
-
-            <h1 className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate max-w-60 px-1">
-              {hasReceivedSync ? campaignTitle : 'Connecting to DM Table...'}
-            </h1>
-
-            {(spotlightTarget || mysterySpotlight) && !showSpotlightCard && (
-              <button
-                type="button"
-                onClick={() => {
-                  setShowSpotlightCard(true)
-                  if (spotlightTarget) {
-                    centerOnSpotlight(spotlightTarget.targetType, spotlightTarget.id)
-                  }
-                }}
-                className="px-2.5 py-1 rounded-md bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
-              >
-                <Sparkles size={13} aria-hidden="true" />
-                <span>Show Spotlight Handout</span>
-              </button>
-            )}
-
-            <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5" />
-
-            {/* Search Palette Trigger */}
-            <button
-              type="button"
-              onClick={() => setShowCommandPalette(true)}
-              title="Search known lore, aliases & #tags (Ctrl+K / Ctrl+F)"
-              className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
-                searchQuery
-                  ? 'bg-blue-600 text-white hover:bg-blue-700'
-                  : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-              }`}
-            >
-              <Search size={13} aria-hidden="true" />
-              <span className="truncate max-w-32">
-                {searchQuery ? `Filter: ${searchQuery}` : 'Search Lore'}
-              </span>
-              <kbd
-                className={`text-[10px] font-bold px-1 py-0.2 rounded ${
-                  searchQuery
-                    ? 'bg-blue-700/80 text-blue-100'
-                    : 'bg-white dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-600'
-                }`}
-              >
-                Ctrl+K
-              </kbd>
-            </button>
-
-            <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5" />
-
-            {/* Comfort Theme, MiniMap & Fullscreen */}
-            <div className="flex items-center gap-1.5">
-              <div className="relative flex items-center">
-                <Palette size={13} className="absolute left-2 text-slate-400 pointer-events-none" />
-                <select
-                  aria-label="Canvas Theme"
-                  value={canvasTheme}
-                  onChange={(e) => {
-                    localThemeOverrideRef.current = true
-                    setCanvasTheme(e.target.value as CanvasTheme)
-                  }}
-                  className="pl-6 pr-2 py-1 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium outline-none hover:bg-slate-200 dark:hover:bg-slate-600 cursor-pointer"
-                >
-                  {(Object.keys(THEME_LABELS) as CanvasTheme[]).map((k) => (
-                    <option key={k} value={k}>
-                      {THEME_LABELS[k]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <button
-                type="button"
-                onClick={toggleDarkMode}
-                title="Toggle Light / Dark UI"
-                aria-label="Toggle Light or Dark UI"
-                className="p-1.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-md text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
-              >
-                {isDarkMode ? <Sun size={15} /> : <Moon size={15} />}
-              </button>
-
-              <button
-                type="button"
-                aria-pressed={showMiniMap}
-                onClick={() => setShowMiniMap((v) => !v)}
-                title="Toggle MiniMap Radar (M)"
-                aria-label="Toggle MiniMap Radar"
-                className={`p-1.5 rounded-md transition-colors cursor-pointer ${
-                  showMiniMap
-                    ? 'bg-blue-600 text-white hover:bg-blue-700'
-                    : 'bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200'
-                }`}
-              >
-                <MapIcon size={15} />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => fitView({ padding: 0.16, duration: 350 })}
-                title="Fit Entire Map"
-                className="px-2 py-1 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-md text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1 transition-colors cursor-pointer"
-              >
-                <LocateFixed size={13} aria-hidden="true" /> Fit
-              </button>
-
-              <button
-                type="button"
-                onClick={async () => {
-                  const res = await window.api.toggleWindowFullscreen?.()
-                  if (res) setIsFullscreen(res.isFullScreen)
-                }}
-                title="Toggle Fullscreen (F11)"
-                className="px-2 py-1 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-md text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1 transition-colors cursor-pointer"
-              >
-                {isFullscreen ? (
-                  <>
-                    <Minimize2 size={13} aria-hidden="true" /> Exit Fullscreen
-                  </>
-                ) : (
-                  <>
-                    <Maximize2 size={13} aria-hidden="true" /> Fullscreen
-                  </>
-                )}
-              </button>
-            </div>
-          </header>
-
           {/* Optional Pinned Filter Pill */}
           {searchQuery.trim() && (
-            <div className="shrink-0 pointer-events-auto bg-blue-600 text-white shadow-md rounded-lg px-2.5 py-1 flex items-center gap-1.5 text-xs font-semibold">
+            <div className="shrink-0 pointer-events-auto bg-sky-600 text-white shadow-md rounded-lg px-2.5 py-1 flex items-center gap-1.5 text-xs font-semibold">
               <Search size={12} aria-hidden="true" />
               <span className="max-w-44 truncate">Filter: {searchQuery}</span>
-              <span className="px-1.5 py-0.2 rounded bg-blue-800/80 text-[10px] font-bold">
+              <span className="px-1.5 py-0.2 rounded bg-sky-800/80 text-[10px] font-bold">
                 {matchedNodeIds.length > 0
                   ? `${(searchMatchIndex % matchedNodeIds.length) + 1} / ${matchedNodeIds.length}`
                   : '0 nodes'}
               </span>
               {matchedNodeIds.length > 0 && (
-                <div className="inline-flex items-center border-l border-blue-400/40 pl-1 gap-0.5">
+                <div className="inline-flex items-center border-l border-sky-400/40 pl-1 gap-0.5">
                   <button
                     type="button"
                     onClick={() => stepSearchMatch(-1)}
                     aria-label="Previous matching entity"
-                    className="p-0.5 rounded hover:bg-blue-500 cursor-pointer"
+                    className="p-0.5 rounded hover:bg-sky-500 cursor-pointer"
                   >
                     <ChevronUp size={13} />
                   </button>
@@ -904,7 +916,7 @@ function PlayerScreenCanvas() {
                     type="button"
                     onClick={() => stepSearchMatch(1)}
                     aria-label="Next matching entity"
-                    className="p-0.5 rounded hover:bg-blue-500 cursor-pointer"
+                    className="p-0.5 rounded hover:bg-sky-500 cursor-pointer"
                   >
                     <ChevronDown size={13} />
                   </button>
@@ -914,7 +926,7 @@ function PlayerScreenCanvas() {
                 type="button"
                 onClick={() => applyPinnedFilter('')}
                 aria-label="Clear canvas filter"
-                className="p-0.5 rounded hover:bg-blue-500 ml-0.5 cursor-pointer"
+                className="p-0.5 rounded hover:bg-sky-500 ml-0.5 cursor-pointer"
               >
                 <X size={13} />
               </button>
@@ -927,56 +939,91 @@ function PlayerScreenCanvas() {
           </div>
         </div>
 
-        {/* Bottom-Left Focus Web — Docked Immediately Right of Zoom Controls */}
+        {/* Bottom-Left Focus Web — 1-Click Hop Pills Docked Beside Zoom Controls */}
         {selectedNode && (
           <div
             style={{ left: showMiniMap ? 258 : 54, bottom: 16 }}
-            className="absolute z-10 bg-white/95 dark:bg-slate-800/95 backdrop-blur shadow-lg rounded-lg px-3 py-2.5 border border-slate-200 dark:border-slate-700 w-60 flex flex-col gap-2 pointer-events-auto"
+            className="absolute z-10 dcc-surface-panel backdrop-blur-md shadow-xl rounded-xl px-3 py-2.5 border w-64 flex flex-col gap-2 pointer-events-auto"
           >
-            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-700 pb-1.5">
-              <h3 className="font-bold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-200">
+            <div className="flex justify-between items-center gap-2 border-b border-slate-200/80 dark:border-slate-700/60 pb-1.5">
+              <h3 className="font-bold text-[11px] uppercase tracking-wider text-slate-600 dark:text-slate-300 shrink-0">
                 Focus Web
               </h3>
-              <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-1.5 py-0.5 rounded truncate max-w-28">
+              <span
+                title={selectedNode.data.label}
+                className="text-[10px] font-bold text-sky-700 dark:text-sky-300 bg-sky-500/12 dark:bg-sky-500/20 px-1.5 py-0.5 rounded truncate max-w-32"
+              >
                 {selectedNode.data.label}
               </span>
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                Degrees of Separation
-              </label>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center justify-between gap-1.5">
+                <div
+                  role="group"
+                  aria-label="Focus Web hop distance"
+                  className="inline-flex rounded-md border border-slate-300/80 dark:border-slate-700 overflow-hidden text-[11px] font-semibold"
+                >
+                  {([1, 2, 3, ''] as Array<number | ''>).map((hop) => {
+                    const active = degrees === hop
+                    return (
+                      <button
+                        key={String(hop || 'all')}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => setDegrees(hop)}
+                        className={`px-2 py-1 min-h-6 transition-colors cursor-pointer ${
+                          active
+                            ? 'bg-sky-600 text-white'
+                            : 'bg-white dark:bg-[#172342] text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#1f2e54]'
+                        }`}
+                      >
+                        {hop === '' ? 'All' : `${hop}`}
+                      </button>
+                    )
+                  })}
+                </div>
                 <input
                   type="number"
                   min="0"
                   max="10"
+                  title="Custom hop distance (0–10)"
+                  aria-label="Custom degrees of separation"
                   value={degrees}
                   onChange={(e) =>
                     setDegrees(e.target.value === '' ? '' : parseInt(e.target.value, 10))
                   }
-                  className="border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 dark:text-slate-200 rounded px-2 py-1 text-xs w-16 outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="All"
+                  className="dcc-surface-input border rounded-md px-1.5 py-1 text-[11px] w-14 text-center tabular-nums placeholder-slate-400"
+                  placeholder="0–10"
                 />
-                <div className="flex rounded border border-slate-300 dark:border-slate-600 overflow-hidden text-[11px] font-semibold">
+              </div>
+
+              <div className="flex items-center justify-between gap-2">
+                <div
+                  role="group"
+                  aria-label="Non-matching card visibility"
+                  className="inline-flex rounded-md border border-slate-300/80 dark:border-slate-700 overflow-hidden text-[11px] font-semibold"
+                >
                   <button
                     type="button"
+                    aria-pressed={degreeMode === 'fade'}
                     onClick={() => setDegreeMode('fade')}
-                    className={`px-2 py-1 cursor-pointer ${
+                    className={`px-2.5 py-0.5 min-h-6 cursor-pointer transition-colors ${
                       degreeMode === 'fade'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                        ? 'bg-sky-600 text-white'
+                        : 'bg-white dark:bg-[#172342] text-slate-600 dark:text-slate-300'
                     }`}
                   >
-                    Fade
+                    Fade Others
                   </button>
                   <button
                     type="button"
+                    aria-pressed={degreeMode === 'hide'}
                     onClick={() => setDegreeMode('hide')}
-                    className={`px-2 py-1 cursor-pointer ${
+                    className={`px-2.5 py-0.5 min-h-6 border-l border-slate-300/80 dark:border-slate-700 cursor-pointer transition-colors ${
                       degreeMode === 'hide'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                        ? 'bg-sky-600 text-white'
+                        : 'bg-white dark:bg-[#172342] text-slate-600 dark:text-slate-300'
                     }`}
                   >
                     Hide
@@ -986,7 +1033,7 @@ function PlayerScreenCanvas() {
                   <button
                     type="button"
                     onClick={() => setDegrees('')}
-                    className="text-xs text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                    className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
                   >
                     Reset
                   </button>
@@ -995,49 +1042,55 @@ function PlayerScreenCanvas() {
             </div>
           </div>
         )}
+          </div>
+
+          {/* Row 2.5: Docked Non-Colliding Session Timeline Tray */}
+          <SessionTimelineTray open={timelineExpanded} onClose={() => setTimelineExpanded(false)} />
         </div>
 
-        {/* Dedicated Very-Bottom Player Bar: Campaign Timeline (Left) + Views / BookmarksBar (Right) */}
-        {showBottomPlayerBar && (
-          <footer
-            aria-label="Campaign Timeline and Views"
-            style={{
-              paddingRight: selectedNode || selectedEdge ? '21.75rem' : undefined
-            }}
-            className="shrink-0 z-20 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 px-3 py-1.5 flex items-center gap-3 min-w-0 motion-safe:transition-[padding-right] motion-safe:duration-150"
-          >
-            <TimelineBar diffStats={diffStats} />
-            <BookmarksBar readOnly />
-          </footer>
-        )}
+        {/* Docked Right-Hand Read-Only Player Inspector */}
+        <PlayerInspector
+          selectedNode={selectedNode}
+          selectedEdge={selectedEdge}
+          allNodes={baseNodes}
+          allEdges={baseEdges}
+          isPlayerView={true}
+          isSnapshotPreview={isSnapshotPreview}
+          diffEntries={selectedDiffEntries}
+          diffCompareLabel={diffCompareTarget.label}
+          onFilterByTag={(tag) => applyPinnedFilter(`#${tag}`)}
+          onSelectEdge={navigateToEdge}
+          onNavigateToNode={navigateToNode}
+          onClose={() => {
+            if (isSnapshotPreview) {
+              setPreviewSelection(null)
+            } else {
+              if (selectedNode) {
+                onNodesChange([{ id: selectedNode.id, type: 'select', selected: false }])
+              }
+              if (selectedEdge) {
+                onEdgesChange([{ id: selectedEdge.id, type: 'select', selected: false }])
+              }
+            }
+          }}
+        />
       </div>
 
-      {/* Right-Hand Read-Only Player Inspector */}
-      <PlayerInspector
-        selectedNode={selectedNode}
-        selectedEdge={selectedEdge}
-        allNodes={baseNodes}
-        allEdges={baseEdges}
-        isPlayerView={true}
-        isSnapshotPreview={isSnapshotPreview}
-        diffEntries={selectedDiffEntries}
-        diffCompareLabel={diffCompareTarget.label}
-        onFilterByTag={(tag) => applyPinnedFilter(`#${tag}`)}
-        onSelectEdge={navigateToEdge}
-        onNavigateToNode={navigateToNode}
-        onClose={() => {
-          if (isSnapshotPreview) {
-            setPreviewSelection(null)
-          } else {
-            if (selectedNode) {
-              onNodesChange([{ id: selectedNode.id, type: 'select', selected: false }])
-            }
-            if (selectedEdge) {
-              onEdgesChange([{ id: selectedEdge.id, type: 'select', selected: false }])
-            }
-          }
-        }}
-      />
+      {/* Row 3: Dedicated Full-Width 36px Bottom Player Bar */}
+      {showBottomPlayerBar && (
+        <footer
+          aria-label="Campaign Timeline and Views"
+          className="shrink-0 h-9 z-20 dcc-chrome-bar border-t px-3 flex items-center gap-3 min-w-0"
+        >
+          <TimelineBar
+            diffStats={diffStats}
+            expanded={timelineExpanded}
+            onExpandedChange={setTimelineExpanded}
+            hideInlineDrawer
+          />
+          <BookmarksBar readOnly />
+        </footer>
+      )}
 
       {/* Lore Search & Navigation Palette */}
       <CommandPaletteModal

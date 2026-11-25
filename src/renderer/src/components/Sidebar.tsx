@@ -108,6 +108,7 @@ import ConnectionsBacklinksSection from './ConnectionsBacklinksSection'
 
 export type EntityInspectorTabId = 'details' | 'lore' | 'style' | 'links'
 export type GroupInspectorTabId = 'group' | 'lore' | 'style' | 'links'
+export type EdgeInspectorTabId = 'style' | 'routing' | 'notes'
 
 const ENTITY_TABS: Array<{ id: EntityInspectorTabId; label: string; Icon: typeof FileText }> = [
   { id: 'details', label: 'Details', Icon: FileText },
@@ -121,6 +122,12 @@ const GROUP_TABS: Array<{ id: GroupInspectorTabId; label: string; Icon: typeof F
   { id: 'lore', label: 'Lore', Icon: BookOpen },
   { id: 'style', label: 'Style', Icon: Palette },
   { id: 'links', label: 'Links', Icon: Link2 }
+]
+
+const EDGE_TABS: Array<{ id: EdgeInspectorTabId; label: string; Icon: typeof Palette }> = [
+  { id: 'style', label: 'Style', Icon: Palette },
+  { id: 'routing', label: 'Routing', Icon: CircleDot },
+  { id: 'notes', label: 'Notes', Icon: BookOpen }
 ]
 
 interface SidebarProps {
@@ -186,6 +193,8 @@ export default function Sidebar({
   const baseId = useId()
   const [activeEntityTab, setActiveEntityTab] = useState<EntityInspectorTabId>('details')
   const [activeGroupTab, setActiveGroupTab] = useState<GroupInspectorTabId>('group')
+  const [activeEdgeTab, setActiveEdgeTab] = useState<EdgeInspectorTabId>('style')
+  const [portsSectionOpen, setPortsSectionOpen] = useState(false)
   const [categoryEditorMode, setCategoryEditorMode] = useState<'closed' | 'create' | 'edit'>(
     'closed'
   )
@@ -208,8 +217,12 @@ export default function Sidebar({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const entityTablistRef = useRef<HTMLDivElement>(null)
   const groupTablistRef = useRef<HTMLDivElement>(null)
+  const edgeTablistRef = useRef<HTMLDivElement>(null)
   const entityPanelsRef = useRef<HTMLDivElement>(null)
   const groupPanelsRef = useRef<HTMLDivElement>(null)
+  const entityScrollRef = useRef<HTMLDivElement>(null)
+  const groupScrollRef = useRef<HTMLDivElement>(null)
+  const edgeScrollRef = useRef<HTMLDivElement>(null)
   const editedInFocusSession = useRef(false)
   const renameOriginRef = useRef<{ nodeId: string; label: string } | null>(null)
 
@@ -239,10 +252,25 @@ export default function Sidebar({
     }
   }, [singleSelectedNode?.id, nodes, edges, isPlayerEdition])
 
-  // Reset inline custom-category editor when switching nodes
+  // Reset inline custom-category editor & scroll position when switching selections or tabs
   useEffect(() => {
     setCategoryEditorMode('closed')
+    setLastAddedPortId(null)
+    if (entityScrollRef.current) entityScrollRef.current.scrollTop = 0
+    if (groupScrollRef.current) groupScrollRef.current.scrollTop = 0
   }, [singleSelectedNode?.id])
+
+  useEffect(() => {
+    if (entityScrollRef.current) entityScrollRef.current.scrollTop = 0
+  }, [activeEntityTab])
+
+  useEffect(() => {
+    if (groupScrollRef.current) groupScrollRef.current.scrollTop = 0
+  }, [activeGroupTab])
+
+  useEffect(() => {
+    if (edgeScrollRef.current) edgeScrollRef.current.scrollTop = 0
+  }, [activeEdgeTab, selectedEdge?.id])
 
   // Sync manual entity dimension draft inputs when selection or canvas resize changes
   useEffect(() => {
@@ -454,13 +482,28 @@ export default function Sidebar({
     const resolvedFilterName =
       resolvedFilterKey === OTHER_EDGE_FILTER_KEY ? 'Other / Custom' : resolvedFilterKey
 
+    const hasEdgeNotes = Boolean(
+      data.publicNotes?.trim() ||
+        data.partyNotes?.trim() ||
+        (!isPlayerEdition && data.dmNotes?.trim())
+    )
+    const hasCustomRouting = Boolean(
+      data.sourceAnchor ||
+        data.targetAnchor ||
+        selectedEdge.sourceHandle?.startsWith('cp-') ||
+        selectedEdge.targetHandle?.startsWith('cp-') ||
+        (data.waypoints && data.waypoints.length > 0) ||
+        data.labelPos
+    )
+
     return (
       <>
         <aside
           aria-label={isPlayerEdition ? 'Theory link editor' : 'Connection editor'}
-          className={`absolute right-0 top-0 h-full w-88 bg-white dark:bg-slate-800 shadow-2xl border-l border-slate-200 dark:border-slate-700 z-20 flex flex-col ${className || ''}`}
+          className={`h-full w-[352px] shrink-0 dcc-surface-panel shadow-xl border-l z-20 flex flex-col ${className || ''}`}
         >
-          <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900 shrink-0">
+          {/* Pinned Header Bar */}
+          <div className="px-4 py-3 border-b border-slate-200/80 dark:border-slate-700/60 flex justify-between items-center dcc-chrome-bar shrink-0">
             <h2 className="font-bold text-base text-slate-800 dark:text-slate-100">
               {isPlayerEdition ? 'Edit Theory Link' : 'Edit Connection'}
             </h2>
@@ -470,7 +513,7 @@ export default function Sidebar({
                   type="button"
                   onClick={() => onSpotlightEdge(selectedEdge.id)}
                   title="Spotlight this relationship on the 2nd-screen Player Window"
-                  className="px-2 py-1 rounded bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/40 dark:hover:bg-amber-800/60 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700/70 text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                  className="px-2 py-1 rounded-md bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/40 dark:hover:bg-amber-800/60 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700/70 text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
                 >
                   <Sparkles size={12} aria-hidden="true" />
                   <span>Spotlight</span>
@@ -479,7 +522,7 @@ export default function Sidebar({
               <button
                 type="button"
                 aria-label="Close connection editor"
-                className="p-1 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-[#1f2e54] cursor-pointer"
                 onClick={closeSidebar}
               >
                 <X size={18} aria-hidden="true" />
@@ -487,15 +530,21 @@ export default function Sidebar({
             </div>
           </div>
 
-          <div className="p-4 flex flex-col gap-4 overflow-y-auto overscroll-contain [scrollbar-gutter:stable] min-h-0 flex-1 [&>*]:shrink-0">
-            {/* Source <-> Target Header + Reverse Button */}
-            <div className="flex items-center justify-between gap-2 bg-slate-100 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 p-2 rounded-lg text-xs text-slate-700 dark:text-slate-200">
+          {/* Pinned Endpoints & Relationship Label */}
+          <div className="px-4 pt-3 pb-2.5 border-b border-slate-200/80 dark:border-slate-700/60 dcc-surface-panel shrink-0 flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2 bg-slate-100/90 dark:bg-[#0a1022] border border-slate-200 dark:border-slate-700/80 px-2.5 py-1.5 rounded-lg text-xs text-slate-700 dark:text-slate-200">
               <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                <span className="font-semibold truncate max-w-[95px]">
+                <span
+                  title={sourceNode?.data.label || 'Label Anchor'}
+                  className="font-semibold truncate max-w-[105px]"
+                >
                   {sourceNode?.data.label || 'Label Anchor'}
                 </span>
                 <ArrowRight size={13} className="shrink-0 text-slate-400" aria-hidden="true" />
-                <span className="font-semibold truncate max-w-[95px]">
+                <span
+                  title={targetNode?.data.label || 'Label Anchor'}
+                  className="font-semibold truncate max-w-[105px]"
+                >
                   {targetNode?.data.label || 'Label Anchor'}
                 </span>
               </div>
@@ -503,16 +552,16 @@ export default function Sidebar({
                 type="button"
                 onClick={() => reverseEdgeDirection(selectedEdge.id)}
                 title="Swap Source & Target"
-                className="px-2 py-1 rounded bg-white dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-600 text-xs font-semibold flex items-center gap-1 shrink-0 transition-colors cursor-pointer"
+                className="px-2 py-0.5 rounded bg-white dark:bg-[#172342] hover:bg-sky-50 dark:hover:bg-[#1f2e54] border border-slate-300 dark:border-slate-600 text-[11px] font-semibold flex items-center gap-1 shrink-0 transition-colors cursor-pointer"
               >
-                <ArrowLeftRight size={12} aria-hidden="true" /> Flip
+                <ArrowLeftRight size={11} aria-hidden="true" /> Flip
               </button>
             </div>
 
             <div className="flex flex-col gap-1">
               <label
                 htmlFor={`${baseId}-edge-label`}
-                className="text-xs font-semibold text-slate-600 dark:text-slate-300"
+                className="text-[11px] font-semibold text-slate-600 dark:text-slate-300"
               >
                 Relationship Label
               </label>
@@ -526,584 +575,662 @@ export default function Sidebar({
                   ensureHistoryOnce()
                   updateEdgeData(selectedEdge.id, { label: e.target.value }, false)
                 }}
-                className="border border-slate-300 dark:border-slate-700 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 placeholder-slate-400 w-full"
+                className="dcc-surface-input border rounded-md px-2.5 py-1.5 text-sm font-semibold placeholder-slate-400 w-full"
               />
             </div>
+          </div>
 
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center justify-between">
-                <label
-                  htmlFor={`${baseId}-edge-preset`}
-                  className="text-xs font-semibold text-slate-600 dark:text-slate-300"
+          {/* 3-Tab Bar (`Style` | `Routing` | `Notes`) */}
+          <div
+            ref={edgeTablistRef}
+            role="tablist"
+            aria-label="Connection editor sections"
+            className="entity-tablist border-b border-slate-200/80 dark:border-slate-700/60 dcc-chrome-bar shrink-0 px-1.5"
+          >
+            {EDGE_TABS.map((tab) => {
+              const isSelected = activeEdgeTab === tab.id
+              const Icon = tab.Icon
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  id={`${baseId}-edge-tab-${tab.id}`}
+                  aria-selected={isSelected}
+                  onClick={() => setActiveEdgeTab(tab.id)}
+                  className="entity-tab py-2 px-2 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                 >
-                  Legend Filter Group
-                </label>
-                {!data.preset && (
-                  <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400">
-                    Auto → {resolvedFilterName}
-                  </span>
-                )}
-              </div>
-              <select
-                id={`${baseId}-edge-preset`}
-                value={data.preset || ''}
-                onChange={(e) =>
-                  updateEdgeData(
-                    selectedEdge.id,
-                    { preset: e.target.value || undefined },
-                    true
-                  )
-                }
-                className="border border-slate-300 dark:border-slate-700 rounded-md p-1.5 text-xs outline-none w-full bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
-              >
-                <option value="">Auto (Match Style / Label)</option>
-                {connectionPresets.map((p) => (
-                  <option key={p.label} value={p.label}>
-                    {p.label}
-                  </option>
-                ))}
-                <option value={OTHER_EDGE_FILTER_KEY}>Other / Custom</option>
-              </select>
-            </div>
-
-            {/* Arrow Direction */}
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                Arrow Direction
-              </span>
-              <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Arrow direction">
-                {(
-                  [
-                    { val: 'none', text: 'None —' },
-                    { val: 'forward', text: 'A → B' },
-                    { val: 'reverse', text: 'A ← B' },
-                    { val: 'bidirectional', text: 'A ↔ B' }
-                  ] as Array<{ val: EdgeDirection; text: string }>
-                ).map((opt) => {
-                  const active = (data.direction || 'none') === opt.val
-                  return (
-                    <button
-                      key={opt.val}
-                      type="button"
-                      aria-pressed={active}
-                      onClick={() => updateEdgeData(selectedEdge.id, { direction: opt.val }, true)}
-                      className={`py-1.5 px-1 rounded border text-xs font-semibold transition-colors cursor-pointer ${
-                        active
-                          ? 'bg-blue-600 text-white border-blue-600'
-                          : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
-                      }`}
-                    >
-                      {opt.text}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <div className="flex flex-col gap-1 flex-1">
-                <label
-                  htmlFor={`${baseId}-edge-color`}
-                  className="text-xs font-semibold text-slate-600 dark:text-slate-300"
-                >
-                  Line Color
-                </label>
-                <input
-                  id={`${baseId}-edge-color`}
-                  type="color"
-                  onPointerDown={() => useStore.getState().pushHistory(true)}
-                  className="w-full h-8 cursor-pointer rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 p-0.5"
-                  value={data.color || '#94a3b8'}
-                  onChange={(e) =>
-                    updateEdgeData(
-                      selectedEdge.id,
-                      { color: e.target.value, preset: undefined },
-                      false
-                    )
-                  }
-                />
-              </div>
-
-              <div className="flex flex-col gap-1 flex-1">
-                <label
-                  htmlFor={`${baseId}-edge-style`}
-                  className="text-xs font-semibold text-slate-600 dark:text-slate-300"
-                >
-                  Line Style
-                </label>
-                <select
-                  id={`${baseId}-edge-style`}
-                  className="border border-slate-300 dark:border-slate-700 rounded-md p-1.5 text-sm outline-none w-full bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
-                  value={data.lineStyle || 'solid'}
-                  onChange={(e) =>
-                    updateEdgeData(
-                      selectedEdge.id,
-                      {
-                        lineStyle: e.target.value as 'solid' | 'dashed' | 'dotted',
-                        preset: undefined
-                      },
-                      true
-                    )
-                  }
-                >
-                  <option value="solid">Solid</option>
-                  <option value="dashed">Dashed</option>
-                  <option value="dotted">Dotted</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="flex gap-3 items-end">
-              <div className="flex flex-col gap-1 flex-1">
-                <div className="flex justify-between">
-                  <label
-                    htmlFor={`${baseId}-edge-thickness`}
-                    className="text-xs font-semibold text-slate-600 dark:text-slate-300"
-                  >
-                    Thickness
-                  </label>
-                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                    {data.thickness || 2}px
-                  </span>
-                </div>
-                <input
-                  id={`${baseId}-edge-thickness`}
-                  type="range"
-                  min="1"
-                  max="10"
-                  onPointerDown={() => useStore.getState().pushHistory(true)}
-                  className="w-full cursor-pointer accent-blue-600"
-                  value={data.thickness || 2}
-                  onChange={(e) =>
-                    updateEdgeData(
-                      selectedEdge.id,
-                      { thickness: parseInt(e.target.value, 10) },
-                      false
-                    )
-                  }
-                />
-              </div>
-
-              <div className="flex flex-col gap-1 flex-1">
-                <label
-                  htmlFor={`${baseId}-edge-curve`}
-                  className="text-xs font-semibold text-slate-600 dark:text-slate-300"
-                >
-                  Curve Style
-                </label>
-                <select
-                  id={`${baseId}-edge-curve`}
-                  className="border border-slate-300 dark:border-slate-700 rounded-md p-1.5 text-sm outline-none w-full bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
-                  value={data.pathStyle || 'smooth'}
-                  onChange={(e) =>
-                    updateEdgeData(
-                      selectedEdge.id,
-                      { pathStyle: e.target.value as 'smooth' | 'straight' },
-                      true
-                    )
-                  }
-                >
-                  <option value="smooth">Smooth Spline</option>
-                  <option value="straight">Straight Segments</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Perimeter Endpoint Attachment (Single-Pointer Accessible Control) */}
-            {(() => {
-              const sNode = nodes.find((n) => n.id === selectedEdge.source)
-              const tNode = nodes.find((n) => n.id === selectedEdge.target)
-              const hasCustomEndpoints = Boolean(
-                data.sourceAnchor ||
-                  data.targetAnchor ||
-                  selectedEdge.sourceHandle?.startsWith('cp-') ||
-                  selectedEdge.targetHandle?.startsWith('cp-')
+                  <Icon size={13} aria-hidden="true" />
+                  <span>{tab.label}</span>
+                  {tab.id === 'routing' && hasCustomRouting && (
+                    <span
+                      aria-hidden="true"
+                      className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"
+                    />
+                  )}
+                  {tab.id === 'notes' && hasEdgeNotes && (
+                    <span
+                      aria-hidden="true"
+                      className="w-1.5 h-1.5 rounded-full bg-sky-500 shrink-0"
+                    />
+                  )}
+                </button>
               )
+            })}
+          </div>
 
-              const renderEndpointRow = (
-                which: 'source' | 'target',
-                endpointNode: typeof sNode
-              ) => {
-                if (!endpointNode) return null
-                const handleId =
-                  which === 'source' ? selectedEdge.sourceHandle : selectedEdge.targetHandle
-                const explicitAnchor =
-                  which === 'source' ? data.sourceAnchor : data.targetAnchor
-                const fallbackSide: PerimeterSide = which === 'source' ? 'right' : 'left'
-                const resolved = resolveEffectiveEdgePerimeterAnchor({
-                  handleId,
-                  explicitAnchor,
-                  nodeData: endpointNode.data,
-                  fallbackSide
-                })
-                const endpointIsGroup =
-                  endpointNode.type === 'groupRegion' || Boolean(endpointNode.data?.isGroup)
-                const activePorts = resolveActivePerimeterPorts(
-                  endpointNode.data,
-                  endpointIsGroup
-                )
-                const pct = Math.round(resolved.anchor.offset * 100)
-                const selectId = `${baseId}-edge-${which}-side`
-                const sliderId = `${baseId}-edge-${which}-offset`
-                const selectVal = resolved.customPort
-                  ? `port:${resolved.customPort.id}`
-                  : resolved.anchor.side
-                let customPortCounter = 0
+          {/* Scrollable Tab Viewport */}
+          <div
+            ref={edgeScrollRef}
+            className="dcc-scroll-y dcc-scroll-shadow flex-1 min-h-0 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
+          >
+            {activeEdgeTab === 'style' && (
+              <div
+                role="tabpanel"
+                aria-labelledby={`${baseId}-edge-tab-style`}
+                className="p-4 flex flex-col gap-3.5 [&>*]:shrink-0"
+              >
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center justify-between">
+                    <label
+                      htmlFor={`${baseId}-edge-preset`}
+                      className="text-xs font-semibold text-slate-600 dark:text-slate-300"
+                    >
+                      Legend Filter Group
+                    </label>
+                    {!data.preset && (
+                      <span className="text-[10px] font-semibold text-sky-600 dark:text-sky-400">
+                        Auto → {resolvedFilterName}
+                      </span>
+                    )}
+                  </div>
+                  <select
+                    id={`${baseId}-edge-preset`}
+                    value={data.preset || ''}
+                    onChange={(e) =>
+                      updateEdgeData(
+                        selectedEdge.id,
+                        { preset: e.target.value || undefined },
+                        true
+                      )
+                    }
+                    className="dcc-surface-input border rounded-md p-1.5 text-xs w-full [color-scheme:light] dark:[color-scheme:dark]"
+                  >
+                    <option value="">Auto (Match Style / Label)</option>
+                    {connectionPresets.map((p) => (
+                      <option key={p.label} value={p.label}>
+                        {p.label}
+                      </option>
+                    ))}
+                    <option value={OTHER_EDGE_FILTER_KEY}>Other / Custom</option>
+                  </select>
+                </div>
 
-                return (
-                  <div className="flex flex-col gap-1.5 p-2 rounded-md bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-700/80">
-                    <div className="flex items-center justify-between gap-2">
+                {/* Arrow Direction */}
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    Arrow Direction
+                  </span>
+                  <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Arrow direction">
+                    {(
+                      [
+                        { val: 'none', text: 'None —' },
+                        { val: 'forward', text: 'A → B' },
+                        { val: 'reverse', text: 'A ← B' },
+                        { val: 'bidirectional', text: 'A ↔ B' }
+                      ] as Array<{ val: EdgeDirection; text: string }>
+                    ).map((opt) => {
+                      const active = (data.direction || 'none') === opt.val
+                      return (
+                        <button
+                          key={opt.val}
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => updateEdgeData(selectedEdge.id, { direction: opt.val }, true)}
+                          className={`py-1.5 px-1 rounded-md border text-xs font-semibold transition-colors cursor-pointer ${
+                            active
+                              ? 'bg-sky-600 text-white border-sky-600'
+                              : 'bg-white dark:bg-[#172342] text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-[#1f2e54]'
+                          }`}
+                        >
+                          {opt.text}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <div className="flex flex-col gap-1 flex-1">
+                    <label
+                      htmlFor={`${baseId}-edge-color`}
+                      className="text-xs font-semibold text-slate-600 dark:text-slate-300"
+                    >
+                      Line Color
+                    </label>
+                    <input
+                      id={`${baseId}-edge-color`}
+                      type="color"
+                      onPointerDown={() => useStore.getState().pushHistory(true)}
+                      className="dcc-color-swatch w-full h-8 cursor-pointer rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-[#0a1022] p-0.5"
+                      value={data.color || '#94a3b8'}
+                      onChange={(e) =>
+                        updateEdgeData(
+                          selectedEdge.id,
+                          { color: e.target.value, preset: undefined },
+                          false
+                        )
+                      }
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1 flex-1">
+                    <label
+                      htmlFor={`${baseId}-edge-style`}
+                      className="text-xs font-semibold text-slate-600 dark:text-slate-300"
+                    >
+                      Line Style
+                    </label>
+                    <select
+                      id={`${baseId}-edge-style`}
+                      className="dcc-surface-input border rounded-md p-1.5 text-xs h-8 w-full [color-scheme:light] dark:[color-scheme:dark]"
+                      value={data.lineStyle || 'solid'}
+                      onChange={(e) =>
+                        updateEdgeData(
+                          selectedEdge.id,
+                          {
+                            lineStyle: e.target.value as 'solid' | 'dashed' | 'dotted',
+                            preset: undefined
+                          },
+                          true
+                        )
+                      }
+                    >
+                      <option value="solid">Solid</option>
+                      <option value="dashed">Dashed</option>
+                      <option value="dotted">Dotted</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 items-end">
+                  <div className="flex flex-col gap-1 flex-1">
+                    <div className="flex justify-between">
                       <label
-                        htmlFor={selectId}
-                        className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 truncate"
+                        htmlFor={`${baseId}-edge-thickness`}
+                        className="text-xs font-semibold text-slate-600 dark:text-slate-300"
                       >
-                        {which === 'source' ? 'From' : 'To'}: {endpointNode.data?.label || 'Entity'}
+                        Thickness
                       </label>
-                      <select
-                        id={selectId}
-                        value={selectVal}
-                        onChange={(e) => {
-                          const raw = e.target.value
-                          if (raw.startsWith('port:')) {
-                            updateEdgeEndpointAnchor(
-                              selectedEdge.id,
-                              which,
-                              { anchor: null, customPortId: raw.slice(5) },
-                              true
-                            )
-                          } else {
-                            updateEdgeEndpointAnchor(
-                              selectedEdge.id,
-                              which,
-                              {
-                                anchor: {
-                                  side: raw as PerimeterSide,
-                                  offset: resolved.anchor.offset
-                                }
-                              },
-                              true
-                            )
-                          }
-                        }}
-                        className="max-w-40 border border-slate-300 dark:border-slate-700 rounded px-1.5 py-0.5 text-[11px] font-medium bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
-                      >
-                        <optgroup label="Freeform Edge">
-                          {PERIMETER_SIDES.map((s) => (
-                            <option key={s} value={s}>
-                              {PERIMETER_SIDE_LABELS[s]} Edge (Freeform)
-                            </option>
-                          ))}
-                        </optgroup>
-                        {activePorts.length > 0 && (
-                          <optgroup label="Connection Points">
-                            {activePorts.map((cp) => {
-                              const cpIdx = cp.id.startsWith('cp-')
-                                ? customPortCounter++
-                                : undefined
-                              return (
-                                <option key={cp.id} value={`port:${cp.id}`}>
-                                  {resolvePortDisplayName(cp, cpIdx)} (
-                                  {PERIMETER_SIDE_LABELS[cp.side]} {Math.round(cp.offset * 100)}%)
-                                </option>
-                              )
-                            })}
-                          </optgroup>
-                        )}
-                      </select>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <label
-                        htmlFor={sliderId}
-                        className="text-[10px] font-medium text-slate-500 dark:text-slate-400 shrink-0"
-                      >
-                        Edge Pos
-                      </label>
-                      <input
-                        id={sliderId}
-                        type="range"
-                        min="5"
-                        max="95"
-                        step="1"
-                        value={pct}
-                        onPointerDown={() => useStore.getState().pushHistory(true)}
-                        onChange={(e) => {
-                          const nextPct = parseInt(e.target.value, 10)
-                          updateEdgeEndpointAnchor(
-                            selectedEdge.id,
-                            which,
-                            {
-                              anchor: {
-                                side: resolved.anchor.side,
-                                offset: nextPct / 100
-                              }
-                            },
-                            false
-                          )
-                        }}
-                        className="flex-1 cursor-pointer accent-blue-600 h-1.5"
-                      />
-                      <span className="text-[10px] font-mono font-semibold text-slate-600 dark:text-slate-300 w-8 text-right">
-                        {pct}%
+                      <span className="text-xs font-medium text-slate-500 dark:text-slate-400 tabular-nums">
+                        {data.thickness || 2}px
                       </span>
                     </div>
+                    <input
+                      id={`${baseId}-edge-thickness`}
+                      type="range"
+                      min="1"
+                      max="10"
+                      onPointerDown={() => useStore.getState().pushHistory(true)}
+                      className="w-full cursor-pointer"
+                      value={data.thickness || 2}
+                      onChange={(e) =>
+                        updateEdgeData(
+                          selectedEdge.id,
+                          { thickness: parseInt(e.target.value, 10) },
+                          false
+                        )
+                      }
+                    />
                   </div>
-                )
-              }
 
-              if (!sNode && !tNode) return null
+                  <div className="flex flex-col gap-1 flex-1">
+                    <label
+                      htmlFor={`${baseId}-edge-curve`}
+                      className="text-xs font-semibold text-slate-600 dark:text-slate-300"
+                    >
+                      Curve Style
+                    </label>
+                    <select
+                      id={`${baseId}-edge-curve`}
+                      className="dcc-surface-input border rounded-md p-1.5 text-xs w-full [color-scheme:light] dark:[color-scheme:dark]"
+                      value={data.pathStyle || 'smooth'}
+                      onChange={(e) =>
+                        updateEdgeData(
+                          selectedEdge.id,
+                          { pathStyle: e.target.value as 'smooth' | 'straight' },
+                          true
+                        )
+                      }
+                    >
+                      <option value="smooth">Smooth Spline</option>
+                      <option value="straight">Straight Segments</option>
+                    </select>
+                  </div>
+                </div>
 
-              return (
-                <div className="flex flex-col gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
-                      <CircleDot size={12} className="text-blue-500" aria-hidden="true" />
-                      Endpoint Positions
+                {/* Presets */}
+                <div className="flex flex-col gap-2 pt-3 border-t border-slate-200/80 dark:border-slate-700/60">
+                  <button
+                    type="button"
+                    onClick={handleSavePreset}
+                    disabled={!data.label?.trim()}
+                    className="w-full py-1.5 bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/50 disabled:opacity-50 disabled:cursor-not-allowed rounded-md text-xs font-semibold transition-colors border border-sky-200 dark:border-sky-800/70 cursor-pointer"
+                  >
+                    Save Current Style as Preset
+                  </button>
+
+                  {connectionPresets.length > 0 && (
+                    <div className="flex flex-col gap-1.5 mt-1">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        Saved Connection Types
+                      </span>
+                      {connectionPresets.map((preset) => (
+                        <div key={preset.label} className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const currentTrimmed = (data.label || '').trim()
+                              const shouldReplaceLabel =
+                                !currentTrimmed ||
+                                connectionPresets.some(
+                                  (p) => p.label.toLowerCase() === currentTrimmed.toLowerCase()
+                                )
+                              updateEdgeData(
+                                selectedEdge.id,
+                                {
+                                  label: shouldReplaceLabel ? preset.label : data.label,
+                                  preset: preset.label,
+                                  color: preset.color,
+                                  lineStyle: preset.lineStyle,
+                                  thickness: preset.thickness,
+                                  direction: preset.direction || 'none'
+                                },
+                                true
+                              )
+                            }}
+                            className="flex-1 flex items-center gap-3 px-2.5 py-1.5 rounded-md border border-slate-200 dark:border-slate-700/80 bg-white/60 dark:bg-[#172342]/60 hover:bg-slate-100 dark:hover:bg-[#1f2e54] transition-colors text-left min-w-0 cursor-pointer"
+                          >
+                            <div className="w-7 flex items-center justify-center shrink-0">
+                              <div
+                                className="w-full"
+                                style={{
+                                  borderTopWidth: Math.min(preset.thickness || 2, 5),
+                                  borderTopStyle: preset.lineStyle,
+                                  borderTopColor: preset.color
+                                }}
+                              />
+                            </div>
+                            <span className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate">
+                              {preset.label}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Delete ${preset.label} preset`}
+                            onClick={() =>
+                              setConfirmState({
+                                title: 'Delete Connection Preset?',
+                                message: `Remove "${preset.label}" from your saved connection presets? Existing lines on the map will keep their styling.`,
+                                confirmLabel: 'Delete Preset',
+                                onConfirm: () => deleteConnectionPreset(preset.label)
+                              })
+                            }
+                            className="p-1.5 rounded-md text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+                          >
+                            <X size={14} aria-hidden="true" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeEdgeTab === 'routing' && (
+              <div
+                role="tabpanel"
+                aria-labelledby={`${baseId}-edge-tab-routing`}
+                className="p-4 flex flex-col gap-4 [&>*]:shrink-0"
+              >
+                {/* Perimeter Endpoint Attachment (Single-Pointer Accessible Control) */}
+                {(() => {
+                  const sNode = nodes.find((n) => n.id === selectedEdge.source)
+                  const tNode = nodes.find((n) => n.id === selectedEdge.target)
+                  const hasCustomEndpoints = Boolean(
+                    data.sourceAnchor ||
+                      data.targetAnchor ||
+                      selectedEdge.sourceHandle?.startsWith('cp-') ||
+                      selectedEdge.targetHandle?.startsWith('cp-')
+                  )
+
+                  const renderEndpointRow = (
+                    which: 'source' | 'target',
+                    endpointNode: typeof sNode
+                  ) => {
+                    if (!endpointNode) return null
+                    const handleId =
+                      which === 'source' ? selectedEdge.sourceHandle : selectedEdge.targetHandle
+                    const explicitAnchor =
+                      which === 'source' ? data.sourceAnchor : data.targetAnchor
+                    const fallbackSide: PerimeterSide = which === 'source' ? 'right' : 'left'
+                    const resolved = resolveEffectiveEdgePerimeterAnchor({
+                      handleId,
+                      explicitAnchor,
+                      nodeData: endpointNode.data,
+                      fallbackSide
+                    })
+                    const endpointIsGroup =
+                      endpointNode.type === 'groupRegion' || Boolean(endpointNode.data?.isGroup)
+                    const activePorts = resolveActivePerimeterPorts(
+                      endpointNode.data,
+                      endpointIsGroup
+                    )
+                    const pct = Math.round(resolved.anchor.offset * 100)
+                    const selectId = `${baseId}-edge-${which}-side`
+                    const sliderId = `${baseId}-edge-${which}-offset`
+                    const selectVal = resolved.customPort
+                      ? `port:${resolved.customPort.id}`
+                      : resolved.anchor.side
+                    let customPortCounter = 0
+
+                    return (
+                      <div className="flex flex-col gap-1.5 p-2.5 rounded-lg bg-slate-50/90 dark:bg-[#0a1022]/80 border border-slate-200 dark:border-slate-700/80">
+                        <div className="flex items-center justify-between gap-2">
+                          <label
+                            htmlFor={selectId}
+                            title={endpointNode.data?.label || 'Entity'}
+                            className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 truncate"
+                          >
+                            {which === 'source' ? 'From' : 'To'}:{' '}
+                            {endpointNode.data?.label || 'Entity'}
+                          </label>
+                          <select
+                            id={selectId}
+                            value={selectVal}
+                            onChange={(e) => {
+                              const raw = e.target.value
+                              if (raw.startsWith('port:')) {
+                                updateEdgeEndpointAnchor(
+                                  selectedEdge.id,
+                                  which,
+                                  { anchor: null, customPortId: raw.slice(5) },
+                                  true
+                                )
+                              } else {
+                                updateEdgeEndpointAnchor(
+                                  selectedEdge.id,
+                                  which,
+                                  {
+                                    anchor: {
+                                      side: raw as PerimeterSide,
+                                      offset: resolved.anchor.offset
+                                    }
+                                  },
+                                  true
+                                )
+                              }
+                            }}
+                            className="max-w-44 dcc-surface-input border rounded px-1.5 py-0.5 text-[11px] font-medium cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
+                          >
+                            <optgroup label="Freeform Edge">
+                              {PERIMETER_SIDES.map((s) => (
+                                <option key={s} value={s}>
+                                  {PERIMETER_SIDE_LABELS[s]} Edge (Freeform)
+                                </option>
+                              ))}
+                            </optgroup>
+                            {activePorts.length > 0 && (
+                              <optgroup label="Connection Points">
+                                {activePorts.map((cp) => {
+                                  const cpIdx = cp.id.startsWith('cp-')
+                                    ? customPortCounter++
+                                    : undefined
+                                  return (
+                                    <option key={cp.id} value={`port:${cp.id}`}>
+                                      {resolvePortDisplayName(cp, cpIdx)} (
+                                      {PERIMETER_SIDE_LABELS[cp.side]}{' '}
+                                      {Math.round(cp.offset * 100)}%)
+                                    </option>
+                                  )
+                                })}
+                              </optgroup>
+                            )}
+                          </select>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <label
+                            htmlFor={sliderId}
+                            className="text-[10px] font-medium text-slate-500 dark:text-slate-400 shrink-0"
+                          >
+                            Edge Pos
+                          </label>
+                          <input
+                            id={sliderId}
+                            type="range"
+                            min="5"
+                            max="95"
+                            step="1"
+                            value={pct}
+                            onPointerDown={() => useStore.getState().pushHistory(true)}
+                            onChange={(e) => {
+                              const nextPct = parseInt(e.target.value, 10)
+                              updateEdgeEndpointAnchor(
+                                selectedEdge.id,
+                                which,
+                                {
+                                  anchor: {
+                                    side: resolved.anchor.side,
+                                    offset: nextPct / 100
+                                  }
+                                },
+                                false
+                              )
+                            }}
+                            className="flex-1 cursor-pointer h-1.5"
+                          />
+                          <span className="text-[10px] font-mono font-semibold text-slate-600 dark:text-slate-300 w-8 text-right tabular-nums">
+                            {pct}%
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  }
+
+                  if (!sNode && !tNode) return null
+
+                  return (
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                          <CircleDot size={13} className="text-sky-500" aria-hidden="true" />
+                          Endpoint Positions
+                        </span>
+                        {hasCustomEndpoints && (
+                          <button
+                            type="button"
+                            onClick={() => resetEdgeEndpointAnchors(selectedEdge.id)}
+                            className="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-[10px] font-semibold border border-amber-200 dark:border-amber-800 cursor-pointer"
+                          >
+                            Reset Endpoints
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                        Drag either end dot directly on the canvas to slide 360° around borders or
+                        reconnect to another entity.
+                      </p>
+                      {renderEndpointRow('source', sNode)}
+                      {renderEndpointRow('target', tNode)}
+                    </div>
+                  )
+                })()}
+
+                {/* Anchors & Routing */}
+                <div className="flex flex-col gap-2 pt-3 border-t border-slate-200/80 dark:border-slate-700/60">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                      Anchors &amp; Routing
                     </span>
-                    {hasCustomEndpoints && (
+                    {data.waypoints && data.waypoints.length > 0 && (
+                      <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                        Double-click dot to remove
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const st = useStore.getState()
+                        const sPt = resolveEdgeEndpointPoint(
+                          selectedEdge,
+                          'source',
+                          st.nodes,
+                          st.edges
+                        )
+                        const tPt = resolveEdgeEndpointPoint(
+                          selectedEdge,
+                          'target',
+                          st.nodes,
+                          st.edges
+                        )
+                        const nextPt = computeNextDefaultWaypointPosition(
+                          data.waypoints || [],
+                          sPt,
+                          tPt
+                        )
+                        st.addWaypoint(selectedEdge.id, nextPt.x, nextPt.y)
+                      }}
+                      className="flex-1 py-1.5 px-2 bg-slate-100 dark:bg-[#172342] hover:bg-slate-200 dark:hover:bg-[#1f2e54] rounded-md text-xs font-semibold transition-colors border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 cursor-pointer"
+                    >
+                      + Add Anchor
+                    </button>
+                    {data.waypoints && data.waypoints.length > 0 && (
                       <button
                         type="button"
-                        onClick={() => resetEdgeEndpointAnchors(selectedEdge.id)}
-                        className="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-[10px] font-semibold border border-amber-200 dark:border-amber-800 cursor-pointer"
+                        onClick={() => useStore.getState().clearWaypoints(selectedEdge.id)}
+                        className="py-1.5 px-2.5 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 rounded-md text-xs font-semibold border border-amber-200 dark:border-amber-800 cursor-pointer"
                       >
-                        Reset Endpoints
+                        Reset Line
+                      </button>
+                    )}
+                    {data.labelPos && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateEdgeData(selectedEdge.id, { labelPos: undefined }, true)
+                        }
+                        className="py-1.5 px-2.5 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 rounded-md text-xs font-semibold border border-amber-200 dark:border-amber-800 cursor-pointer"
+                      >
+                        Reset Label
                       </button>
                     )}
                   </div>
-                  {renderEndpointRow('source', sNode)}
-                  {renderEndpointRow('target', tNode)}
+                  {data.waypoints && data.waypoints.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-0.5">
+                      {data.waypoints.map((wp, idx) => (
+                        <span
+                          key={wp.id}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-50 dark:bg-sky-950/50 border border-sky-200 dark:border-sky-800/70 text-sky-800 dark:text-sky-200 text-[11px] font-semibold"
+                        >
+                          <span>Anchor {idx + 1}</span>
+                          <button
+                            type="button"
+                            aria-label={`Remove Anchor ${idx + 1}`}
+                            title={`Remove Anchor ${idx + 1}`}
+                            onClick={() =>
+                              useStore.getState().removeWaypoint(selectedEdge.id, wp.id)
+                            }
+                            className="text-sky-500 hover:text-red-500 cursor-pointer inline-flex items-center"
+                          >
+                            <X size={11} aria-hidden="true" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )
-            })()}
-
-            {/* Anchors & Routing */}
-            <div className="flex flex-col gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                  Anchors &amp; Routing
-                </span>
-                {data.waypoints && data.waypoints.length > 0 && (
-                  <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500">
-                    Double-click dot to remove
-                  </span>
-                )}
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const st = useStore.getState()
-                    const sPt = resolveEdgeEndpointPoint(
-                      selectedEdge,
-                      'source',
-                      st.nodes,
-                      st.edges
-                    )
-                    const tPt = resolveEdgeEndpointPoint(
-                      selectedEdge,
-                      'target',
-                      st.nodes,
-                      st.edges
-                    )
-                    const nextPt = computeNextDefaultWaypointPosition(
-                      data.waypoints || [],
-                      sPt,
-                      tPt
-                    )
-                    st.addWaypoint(selectedEdge.id, nextPt.x, nextPt.y)
-                  }}
-                  className="flex-1 py-1.5 px-2 bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-xs font-semibold transition-colors border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 cursor-pointer"
-                >
-                  + Add Anchor
-                </button>
-                {data.waypoints && data.waypoints.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => useStore.getState().clearWaypoints(selectedEdge.id)}
-                    className="py-1.5 px-2.5 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 rounded text-xs font-semibold border border-amber-200 dark:border-amber-800 cursor-pointer"
-                  >
-                    Reset Line
-                  </button>
-                )}
-                {data.labelPos && (
-                  <button
-                    type="button"
-                    onClick={() => updateEdgeData(selectedEdge.id, { labelPos: undefined }, true)}
-                    className="py-1.5 px-2.5 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 rounded text-xs font-semibold border border-amber-200 dark:border-amber-800 cursor-pointer"
-                  >
-                    Reset Label
-                  </button>
-                )}
-              </div>
-              {data.waypoints && data.waypoints.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-0.5">
-                  {data.waypoints.map((wp, idx) => (
-                    <span
-                      key={wp.id}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800/70 text-blue-800 dark:text-blue-200 text-[11px] font-semibold"
-                    >
-                      <span>Anchor {idx + 1}</span>
-                      <button
-                        type="button"
-                        aria-label={`Remove Anchor ${idx + 1}`}
-                        title={`Remove Anchor ${idx + 1}`}
-                        onClick={() =>
-                          useStore.getState().removeWaypoint(selectedEdge.id, wp.id)
-                        }
-                        className="text-blue-500 hover:text-red-500 cursor-pointer inline-flex items-center"
-                      >
-                        <X size={11} aria-hidden="true" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
+            )}
 
-            {/* Connection Lore (Public, Party Notes, & DM Secrets) */}
-            <div className="flex flex-col gap-3 pt-3 border-t border-slate-200 dark:border-slate-700">
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
-                  <Globe size={12} className="text-blue-500" aria-hidden="true" />{' '}
-                  {isPlayerEdition ? 'Theory Summary' : 'Public Relationship Notes'}
-                </label>
-                <WikiLinkTextarea
-                  rows={2}
-                  placeholder="Known history between these entities (use [[Name]] to link)..."
-                  value={data.publicNotes || ''}
-                  nodes={nodes}
-                  hideSecrets={isPlayerEdition}
-                  onCommitStart={() => useStore.getState().pushHistory(true)}
-                  onChange={(val) => updateEdgeData(selectedEdge.id, { publicNotes: val }, false)}
-                />
-              </div>
-
-              <div className="flex flex-col gap-1 p-2.5 rounded-lg bg-indigo-50/75 dark:bg-indigo-950/25 border border-indigo-200 dark:border-indigo-800/60">
-                <label className="text-xs font-bold text-indigo-800 dark:text-indigo-300 flex items-center gap-1.5">
-                  <MessageSquareText size={12} aria-hidden="true" /> Party Notes &amp; Theories
-                </label>
-                <WikiLinkTextarea
-                  rows={2}
-                  placeholder="Player clues, hypotheses, or questions about this link..."
-                  value={data.partyNotes || ''}
-                  nodes={nodes}
-                  hideSecrets={isPlayerEdition}
-                  onCommitStart={() => useStore.getState().pushHistory(true)}
-                  onChange={(val) => updateEdgeData(selectedEdge.id, { partyNotes: val }, false)}
-                />
-              </div>
-
-              {!isPlayerEdition && (
-                <div className="flex flex-col gap-1 p-2.5 rounded-lg bg-amber-50/70 dark:bg-amber-950/25 border border-amber-200 dark:border-amber-800/60">
-                  <label className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
-                    <Lock size={12} aria-hidden="true" /> DM Secret Notes
+            {activeEdgeTab === 'notes' && (
+              <div
+                role="tabpanel"
+                aria-labelledby={`${baseId}-edge-tab-notes`}
+                className="p-4 flex flex-col gap-3.5 [&>*]:shrink-0"
+              >
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                    <Globe size={12} className="text-sky-500" aria-hidden="true" />{' '}
+                    {isPlayerEdition ? 'Theory Summary' : 'Public Relationship Notes'}
                   </label>
                   <WikiLinkTextarea
-                    rows={2}
-                    placeholder="Hidden motives, blackmail, true allegiance..."
-                    value={data.dmNotes || ''}
+                    rows={3}
+                    placeholder="Known history between these entities (use [[Name]] to link)..."
+                    value={data.publicNotes || ''}
                     nodes={nodes}
+                    hideSecrets={isPlayerEdition}
                     onCommitStart={() => useStore.getState().pushHistory(true)}
-                    onChange={(val) => updateEdgeData(selectedEdge.id, { dmNotes: val }, false)}
+                    onChange={(val) => updateEdgeData(selectedEdge.id, { publicNotes: val }, false)}
                   />
                 </div>
-              )}
-            </div>
 
-            {/* Presets */}
-            <div className="flex flex-col gap-2 pt-3 border-t border-slate-200 dark:border-slate-700">
-              <button
-                type="button"
-                onClick={handleSavePreset}
-                disabled={!data.label?.trim()}
-                className="w-full py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 disabled:opacity-50 disabled:cursor-not-allowed rounded-md text-xs font-semibold transition-colors border border-blue-200 dark:border-blue-800 cursor-pointer"
-              >
-                Save Current Style as Preset
-              </button>
-
-              {connectionPresets.length > 0 && (
-                <div className="flex flex-col gap-1.5 mt-1">
-                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                    Saved Connection Types
-                  </span>
-                  {connectionPresets.map((preset) => (
-                    <div key={preset.label} className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const currentTrimmed = (data.label || '').trim()
-                          const shouldReplaceLabel =
-                            !currentTrimmed ||
-                            connectionPresets.some(
-                              (p) => p.label.toLowerCase() === currentTrimmed.toLowerCase()
-                            )
-                          updateEdgeData(
-                            selectedEdge.id,
-                            {
-                              label: shouldReplaceLabel ? preset.label : data.label,
-                              preset: preset.label,
-                              color: preset.color,
-                              lineStyle: preset.lineStyle,
-                              thickness: preset.thickness,
-                              direction: preset.direction || 'none'
-                            },
-                            true
-                          )
-                        }}
-                        className="flex-1 flex items-center gap-3 px-2.5 py-1.5 rounded border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition-colors text-left min-w-0 cursor-pointer"
-                      >
-                        <div className="w-7 flex items-center justify-center shrink-0">
-                          <div
-                            className="w-full"
-                            style={{
-                              borderTopWidth: Math.min(preset.thickness || 2, 5),
-                              borderTopStyle: preset.lineStyle,
-                              borderTopColor: preset.color
-                            }}
-                          />
-                        </div>
-                        <span className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate">
-                          {preset.label}
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Delete ${preset.label} preset`}
-                        onClick={() =>
-                          setConfirmState({
-                            title: 'Delete Connection Preset?',
-                            message: `Remove "${preset.label}" from your saved connection presets? Existing lines on the map will keep their styling.`,
-                            confirmLabel: 'Delete Preset',
-                            onConfirm: () => deleteConnectionPreset(preset.label)
-                          })
-                        }
-                        className="p-1.5 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
-                      >
-                        <X size={14} aria-hidden="true" />
-                      </button>
-                    </div>
-                  ))}
+                <div className="flex flex-col gap-1 p-2.5 rounded-lg bg-indigo-50/75 dark:bg-indigo-950/25 border border-indigo-200 dark:border-indigo-800/60">
+                  <label className="text-xs font-bold text-indigo-800 dark:text-indigo-300 flex items-center gap-1.5">
+                    <MessageSquareText size={12} aria-hidden="true" /> Party Notes &amp; Theories
+                  </label>
+                  <WikiLinkTextarea
+                    rows={3}
+                    placeholder="Player clues, hypotheses, or questions about this link..."
+                    value={data.partyNotes || ''}
+                    nodes={nodes}
+                    hideSecrets={isPlayerEdition}
+                    onCommitStart={() => useStore.getState().pushHistory(true)}
+                    onChange={(val) => updateEdgeData(selectedEdge.id, { partyNotes: val }, false)}
+                  />
                 </div>
-              )}
-            </div>
 
-            {!isPlayerEdition && (
-              <div className="flex items-center gap-2 pt-3 border-t border-slate-200 dark:border-slate-700">
+                {!isPlayerEdition && (
+                  <div className="flex flex-col gap-1 p-2.5 rounded-lg bg-amber-50/70 dark:bg-amber-950/25 border border-amber-200 dark:border-amber-800/60">
+                    <label className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                      <Lock size={12} aria-hidden="true" /> DM Secret Notes
+                    </label>
+                    <WikiLinkTextarea
+                      rows={3}
+                      placeholder="Hidden motives, blackmail, true allegiance..."
+                      value={data.dmNotes || ''}
+                      nodes={nodes}
+                      onCommitStart={() => useStore.getState().pushHistory(true)}
+                      onChange={(val) => updateEdgeData(selectedEdge.id, { dmNotes: val }, false)}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Sticky Bottom Action Strip (Always Reachable Without Scrolling) */}
+          <div className="shrink-0 px-4 py-2.5 border-t border-slate-200/80 dark:border-slate-700/60 dcc-chrome-bar flex items-center justify-between gap-2">
+            {!isPlayerEdition ? (
+              <label
+                htmlFor="edgeIsHidden"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer select-none"
+              >
                 <input
                   type="checkbox"
                   id="edgeIsHidden"
-                  className="rounded accent-blue-600 cursor-pointer"
+                  className="rounded cursor-pointer"
                   checked={!!data.isHidden}
                   onChange={(e) =>
                     updateEdgeData(selectedEdge.id, { isHidden: e.target.checked }, true)
                   }
                 />
-                <label
-                  htmlFor="edgeIsHidden"
-                  className="text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer select-none"
-                >
-                  Hidden from Players (DM Only)
-                </label>
-              </div>
+                <span>Hidden (DM Only)</span>
+              </label>
+            ) : (
+              <span />
             )}
 
             <button
@@ -1116,9 +1243,10 @@ export default function Sidebar({
                   onConfirm: () => deleteEdge(selectedEdge.id)
                 })
               }
-              className="w-full py-2 bg-red-50 dark:bg-red-900/25 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/45 rounded-md text-xs font-bold transition-colors border border-red-200 dark:border-red-800/60 cursor-pointer"
+              className="px-3 py-1.5 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-md text-xs font-bold transition-colors border border-red-200 dark:border-red-800/60 cursor-pointer inline-flex items-center gap-1"
             >
-              {isPlayerEdition ? 'Delete Theory Link' : 'Delete Connection'}
+              <Trash2 size={12} aria-hidden="true" />
+              <span>{isPlayerEdition ? 'Delete Link' : 'Delete'}</span>
             </button>
           </div>
         </aside>
@@ -1193,25 +1321,49 @@ export default function Sidebar({
         })
 
     let customIdxCounter = 0
+    const customPortCount = activePorts.filter((p) => !isBuiltinPerimeterPortId(p.id)).length
+    const isPortsExpanded = portsSectionOpen || Boolean(lastAddedPortId)
 
     return (
-      <div className="flex flex-col gap-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-700">
+      <div className="flex flex-col gap-2 p-3 rounded-lg bg-slate-50/90 dark:bg-[#0a1022]/80 border border-slate-200 dark:border-slate-700/80">
         <div className="flex items-center justify-between gap-2 flex-wrap">
-          <span className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+          <button
+            type="button"
+            aria-expanded={isPortsExpanded}
+            onClick={() => {
+              if (isPortsExpanded) {
+                setPortsSectionOpen(false)
+                setLastAddedPortId(null)
+              } else {
+                setPortsSectionOpen(true)
+              }
+            }}
+            className="text-xs font-bold text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white flex items-center gap-1.5 cursor-pointer"
+          >
+            {isPortsExpanded ? (
+              <ChevronDown size={13} className="text-slate-400 shrink-0" aria-hidden="true" />
+            ) : (
+              <ChevronRight size={13} className="text-slate-400 shrink-0" aria-hidden="true" />
+            )}
             <CircleDot size={13} className="text-amber-500 shrink-0" aria-hidden="true" />
             <span>Connection Points</span>
-            <span className="px-1.5 py-0.2 rounded-full bg-slate-200/80 dark:bg-slate-800 text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+            <span className="px-1.5 py-0.2 rounded-full bg-slate-200/80 dark:bg-[#172342] text-[10px] font-semibold text-slate-600 dark:text-slate-300 tabular-nums">
               {activePorts.length}
             </span>
-          </span>
+            {(hasBuiltinEdits || customPortCount > 0) && (
+              <span className="px-1.5 py-0.2 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 text-[9px] font-bold">
+                {customPortCount > 0 ? `+${customPortCount}` : 'Edited'}
+              </span>
+            )}
+          </button>
           {canEditNode && (
             <div className="flex items-center gap-1.5">
-              {hasBuiltinEdits && (
+              {isPortsExpanded && hasBuiltinEdits && (
                 <button
                   type="button"
                   title="Restore all 8 pre-populated points to their default positions and styles"
                   onClick={() => resetBuiltinPorts(node.id)}
-                  className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 text-[10px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
+                  className="px-2 py-0.5 rounded bg-slate-100 dark:bg-[#172342] hover:bg-slate-200 dark:hover:bg-[#1f2e54] text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 text-[10px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
                 >
                   <RotateCcw size={10} aria-hidden="true" />
                   <span>Restore Defaults</span>
@@ -1221,7 +1373,10 @@ export default function Sidebar({
                 type="button"
                 onClick={() => {
                   const created = addCustomPort(node.id)
-                  if (created) setLastAddedPortId(created.id)
+                  if (created) {
+                    setPortsSectionOpen(true)
+                    setLastAddedPortId(created.id)
+                  }
                 }}
                 className="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700/80 text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
               >
@@ -1232,19 +1387,26 @@ export default function Sidebar({
           )}
         </div>
 
-        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
-          Click any pre-populated or added point below (or right-click it on the card edge) to move,
-          restyle, or remove it. Hold <kbd className="font-mono">Alt</kbd>+Drag on the canvas to
-          slide attached lines together.
-        </p>
-
-        {activePorts.length === 0 ? (
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 italic py-1">
-            All connection points hidden — click <strong>Restore Defaults</strong> or{' '}
-            <strong>+ Add Point</strong> above.
-          </div>
+        {!isPortsExpanded ? (
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+            Click <strong>Connection Points</strong> to customize all {activePorts.length} border
+            ports, or right-click any port on the card edge.
+          </p>
         ) : (
-          <div className="flex flex-col gap-1.5 mt-0.5">
+          <>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+              Click any pre-populated or added point below (or right-click it on the card edge) to
+              move, restyle, or remove it. Hold <kbd className="font-mono">Alt</kbd>+Drag on the
+              canvas to slide attached lines together.
+            </p>
+
+            {activePorts.length === 0 ? (
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 italic py-1">
+                All connection points hidden — click <strong>Restore Defaults</strong> or{' '}
+                <strong>+ Add Point</strong> above.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1.5 mt-0.5">
             {activePorts.map((port) => {
               const isBuiltin = isBuiltinPerimeterPortId(port.id)
               const builtinSpec = getBuiltinPortSpec(port.id)
@@ -1276,7 +1438,7 @@ export default function Sidebar({
                 <details
                   key={port.id}
                   open={lastAddedPortId === port.id ? true : undefined}
-                  className="dcc-disclosure group/portitem rounded bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700"
+                  className="dcc-disclosure group/portitem min-w-0 rounded bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700"
                 >
                   <summary className="px-2 py-1.5 text-[11px] font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded select-none">
                     <ChevronRight
@@ -1381,7 +1543,7 @@ export default function Sidebar({
                           aria-label={`Remove ${displayName}`}
                           title="Remove connection point (attached lines stay in place)"
                           onClick={() => removeCustomPort(node.id, port.id)}
-                          className="p-1 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+                          className="p-1 rounded text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
                         >
                           <Trash2 size={12} aria-hidden="true" />
                         </button>
@@ -1655,7 +1817,9 @@ export default function Sidebar({
                 </details>
               )
             })}
-          </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     )
@@ -2121,10 +2285,10 @@ export default function Sidebar({
       <>
         <aside
           aria-label="Group editor"
-          className={`absolute right-0 top-0 h-full w-88 bg-white dark:bg-slate-800 shadow-2xl border-l border-slate-200 dark:border-slate-700 z-20 flex flex-col ${className || ''}`}
+          className={`h-full w-[352px] shrink-0 dcc-surface-panel shadow-xl border-l z-20 flex flex-col ${className || ''}`}
         >
           {/* Pinned Header Bar */}
-          <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900 shrink-0">
+          <div className="px-4 py-3 border-b flex justify-between items-center dcc-chrome-bar shrink-0">
             <h2 className="font-bold text-base text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
               <ActiveGroupHeaderIcon
                 size={16}
@@ -2205,7 +2369,7 @@ export default function Sidebar({
           </div>
 
           {/* Pinned Group Name Bar */}
-          <div className="px-4 pt-3 pb-2.5 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shrink-0 flex flex-col gap-1">
+          <div className="px-4 pt-3 pb-2.5 border-b border-slate-200/80 dark:border-slate-700/70 shrink-0 flex flex-col gap-1">
             <div className="flex items-center justify-between">
               <label
                 htmlFor="sidebar-node-name-input"
@@ -2281,7 +2445,10 @@ export default function Sidebar({
           </div>
 
           {/* Scrollable Tab Panels */}
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+          <div
+            ref={groupScrollRef}
+            className="flex-1 min-h-0 overflow-y-auto overscroll-contain dcc-scroll-y dcc-scroll-shadow [scrollbar-gutter:stable]"
+          >
             <div ref={groupPanelsRef} className="share-tabpanels">
               {/* ==================== TAB 1: GROUP DETAILS & ROSTER ==================== */}
               <div
@@ -3229,10 +3396,10 @@ export default function Sidebar({
     <>
       <aside
         aria-label={isPlayerEdition ? 'Theory pin editor' : 'Entity editor'}
-        className={`absolute right-0 top-0 h-full w-88 bg-white dark:bg-slate-800 shadow-2xl border-l border-slate-200 dark:border-slate-700 z-20 flex flex-col ${className || ''}`}
+        className={`h-full w-[352px] shrink-0 dcc-surface-panel shadow-xl border-l z-20 flex flex-col ${className || ''}`}
       >
         {/* Pinned Header Bar */}
-        <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900 shrink-0">
+        <div className="px-4 py-3 border-b flex justify-between items-center dcc-chrome-bar shrink-0">
           <h2 className="font-bold text-base text-slate-800 dark:text-slate-100">
             {isPlayerEdition ? 'Edit Theory Pin' : 'Edit Entity'}
           </h2>
@@ -3306,7 +3473,7 @@ export default function Sidebar({
         </div>
 
         {/* Pinned Entity Name Bar (Always Visible Across All 4 Tabs) */}
-        <div className="px-4 pt-3 pb-2.5 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shrink-0 flex flex-col gap-1">
+        <div className="px-4 pt-3 pb-2.5 border-b border-slate-200/80 dark:border-slate-700/70 shrink-0 flex flex-col gap-1">
           <div className="flex items-center justify-between">
             <label
               htmlFor="sidebar-node-name-input"
@@ -3389,7 +3556,10 @@ export default function Sidebar({
         </div>
 
         {/* Scrollable Tab Panels Viewport */}
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+        <div
+          ref={entityScrollRef}
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain dcc-scroll-y dcc-scroll-shadow [scrollbar-gutter:stable]"
+        >
           <div ref={entityPanelsRef} className="share-tabpanels">
             {/* ==================== TAB 1: DETAILS ==================== */}
             <div
@@ -3595,7 +3765,7 @@ export default function Sidebar({
 
                   {isCharacter && (
                     <>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="flex flex-col gap-2">
                         <div className="flex flex-col gap-0.5">
                           <label
                             htmlFor={`${baseId}-dnd-ancestry`}
@@ -3667,9 +3837,9 @@ export default function Sidebar({
                           >
                             DM Voice / Roleplay Cue
                           </label>
-                          <input
+                          <textarea
                             id={`${baseId}-dnd-voice`}
-                            type="text"
+                            rows={2}
                             placeholder="e.g. Grim baritone, taps bowstring"
                             onFocus={beginEditSession}
                             value={f.voiceCue || ''}
@@ -3677,7 +3847,7 @@ export default function Sidebar({
                               ensureHistoryOnce()
                               updateDndField({ voiceCue: e.target.value })
                             }}
-                            className="border border-slate-300 dark:border-slate-700 rounded p-1.5 text-xs bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+                            className="border border-slate-300 dark:border-slate-700 rounded p-1.5 text-xs leading-relaxed bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 [field-sizing:content] resize-y"
                           />
                         </div>
                       )}

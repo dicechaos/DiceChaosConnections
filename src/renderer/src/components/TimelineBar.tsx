@@ -16,9 +16,133 @@ import {
 
 interface TimelineBarProps {
   diffStats?: { added: number; modified: number; removed: number } | null
+  expanded?: boolean
+  onExpandedChange?: (expanded: boolean) => void
+  hideInlineDrawer?: boolean
+  createRequestTick?: number
 }
 
-export default function TimelineBar({ diffStats }: TimelineBarProps) {
+export function SessionTimelineTray({
+  open,
+  onClose,
+  onRequestCreateSnapshot
+}: {
+  open: boolean
+  onClose: () => void
+  onRequestCreateSnapshot?: () => void
+}) {
+  const {
+    campaignEdition,
+    snapshots,
+    activeSnapshotId,
+    isPlayerView,
+    setActiveSnapshot
+  } = useStore()
+
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [open, onClose])
+
+  if (!open) return null
+
+  const isPlayerRestricted = isPlayerView || campaignEdition === 'player'
+  const visibleSnapshots = isPlayerRestricted
+    ? snapshots.filter((s) => s.playerVisible !== false)
+    : snapshots
+
+  return (
+    <section
+      aria-label="Session Timeline Checkpoints"
+      className="no-export shrink-0 dcc-surface-panel border-t px-3.5 py-2 flex flex-col gap-2 z-20"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+          <History size={13} className="text-sky-500" aria-hidden="true" />
+          <span>Session Timeline</span>
+          <span className="px-1.5 py-0.2 rounded-full bg-slate-100 dark:bg-slate-800 text-[10px] font-semibold text-slate-600 dark:text-slate-300 tabular-nums">
+            {visibleSnapshots.length}
+          </span>
+        </span>
+        <div className="flex items-center gap-2">
+          {!isPlayerRestricted && activeSnapshotId === null && onRequestCreateSnapshot && (
+            <button
+              type="button"
+              onClick={onRequestCreateSnapshot}
+              className="px-2.5 py-1 rounded-md bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+            >
+              <Plus size={12} aria-hidden="true" />
+              <span>Save Session Snapshot</span>
+            </button>
+          )}
+          <button
+            type="button"
+            aria-label="Collapse timeline"
+            title="Collapse Session Timeline (Esc)"
+            onClick={onClose}
+            className="p-1 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+          >
+            <ChevronDown size={15} />
+          </button>
+        </div>
+      </div>
+
+      <div className="dcc-scroll-fade-x flex items-center gap-2 pb-0.5 min-w-0">
+        {visibleSnapshots.map((snap) => {
+          const isActive = snap.id === activeSnapshotId
+          return (
+            <button
+              key={snap.id}
+              type="button"
+              onClick={() => setActiveSnapshot(isActive ? null : snap.id)}
+              title={snap.summary ? `${snap.title} — ${snap.summary}` : snap.title}
+              className={`px-3 py-1.5 rounded-lg border text-left shrink-0 [scroll-snap-align:start] transition-colors cursor-pointer ${
+                isActive
+                  ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold shadow-md'
+                  : 'bg-slate-100/90 dark:bg-[#172342] hover:bg-slate-200/80 dark:hover:bg-[#1f2e54] text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700/70'
+              }`}
+            >
+              <div className="text-[10px] opacity-80 font-semibold">
+                {snap.sessionNumber ? `Session ${snap.sessionNumber}` : 'Checkpoint'}
+              </div>
+              <div className="text-xs font-semibold truncate max-w-[180px]">{snap.title}</div>
+            </button>
+          )
+        })}
+
+        <button
+          type="button"
+          onClick={() => setActiveSnapshot(null)}
+          className={`px-3.5 py-1.5 rounded-lg border shrink-0 [scroll-snap-align:start] flex items-center gap-1.5 transition-colors cursor-pointer ${
+            activeSnapshotId === null
+              ? 'bg-emerald-600 text-white border-emerald-500 font-bold shadow-md'
+              : 'bg-slate-100/90 dark:bg-[#172342] hover:bg-slate-200/80 dark:hover:bg-[#1f2e54] text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700/70'
+          }`}
+        >
+          <Radio size={13} aria-hidden="true" />
+          <div className="text-left">
+            <div className="text-[10px] opacity-85 font-semibold">Current</div>
+            <div className="text-xs font-semibold">Live Map</div>
+          </div>
+        </button>
+      </div>
+    </section>
+  )
+}
+
+export default function TimelineBar({
+  diffStats,
+  expanded: controlledExpanded,
+  onExpandedChange,
+  hideInlineDrawer = false,
+  createRequestTick
+}: TimelineBarProps) {
   const {
     campaignEdition,
     snapshots,
@@ -37,7 +161,16 @@ export default function TimelineBar({ diffStats }: TimelineBarProps) {
 
   const isPlayerRestricted = isPlayerView || campaignEdition === 'player'
 
-  const [expanded, setExpanded] = useState(false)
+  const [internalExpanded, setInternalExpanded] = useState(false)
+  const expanded = controlledExpanded !== undefined ? controlledExpanded : internalExpanded
+  const setExpanded = (next: boolean | ((prev: boolean) => boolean)) => {
+    const resolved = typeof next === 'function' ? next(expanded) : next
+    if (onExpandedChange) {
+      onExpandedChange(resolved)
+    } else {
+      setInternalExpanded(resolved)
+    }
+  }
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [editingSnapshotId, setEditingSnapshotId] = useState<string | null>(null)
 
@@ -49,9 +182,34 @@ export default function TimelineBar({ diffStats }: TimelineBarProps) {
   const [pendingRestoreId, setPendingRestoreId] = useState<string | null>(null)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const lastCreateTickRef = useRef<number | undefined>(createRequestTick)
 
   useEffect(() => {
-    if (!expanded || showCreateModal || pendingRestoreId !== null || pendingDeleteId !== null) {
+    if (createRequestTick !== undefined && createRequestTick !== lastCreateTickRef.current) {
+      lastCreateTickRef.current = createRequestTick
+      if (createRequestTick > 0) {
+        const maxSession = snapshots.reduce(
+          (max, s) => (s.sessionNumber && s.sessionNumber > max ? s.sessionNumber : max),
+          0
+        )
+        setSessionNum(String(maxSession + 1))
+        setSessionTitle('')
+        setSessionSummary('')
+        setPlayerVisible(true)
+        setEditingSnapshotId(null)
+        setShowCreateModal(true)
+      }
+    }
+  }, [createRequestTick, snapshots])
+
+  useEffect(() => {
+    if (
+      hideInlineDrawer ||
+      !expanded ||
+      showCreateModal ||
+      pendingRestoreId !== null ||
+      pendingDeleteId !== null
+    ) {
       return
     }
     const onPointerDown = (e: PointerEvent) => {
@@ -70,7 +228,7 @@ export default function TimelineBar({ diffStats }: TimelineBarProps) {
       document.removeEventListener('pointerdown', onPointerDown)
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [expanded, showCreateModal, pendingRestoreId, pendingDeleteId])
+  }, [hideInlineDrawer, expanded, showCreateModal, pendingRestoreId, pendingDeleteId])
 
   const visibleSnapshots = isPlayerRestricted
     ? snapshots.filter((s) => s.playerVisible !== false)
@@ -135,7 +293,7 @@ export default function TimelineBar({ diffStats }: TimelineBarProps) {
     <>
       {/* Top Time-Machine Banner when viewing a historical snapshot */}
       {activeSnapshot && (
-        <div className="no-export absolute top-16 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-1.5 max-w-3xl w-[92%] pointer-events-auto">
+        <div className="no-export fixed top-[52px] left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-1.5 max-w-3xl w-[92%] pointer-events-auto">
           <div className="w-full rounded-xl border border-amber-400/70 bg-amber-950/95 text-amber-50 shadow-2xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 backdrop-blur">
             <div className="flex items-center gap-2.5 min-w-0">
               <History size={18} className="text-amber-400 shrink-0" />
@@ -246,14 +404,14 @@ export default function TimelineBar({ diffStats }: TimelineBarProps) {
           ref={containerRef}
           className="no-export relative shrink-0 flex items-center pointer-events-auto"
         >
-          <div className="flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/70 px-2.5 py-0.5 min-h-6">
+          <div className="flex items-center gap-1.5 rounded-md border border-slate-200/90 dark:border-slate-700/70 bg-slate-50/90 dark:bg-[#172342]/80 px-2.5 py-0.5 min-h-6">
             <button
               type="button"
               aria-expanded={expanded}
               onClick={() => setExpanded((v) => !v)}
-              className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
+              className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-sky-600 dark:hover:text-sky-400 cursor-pointer"
             >
-              <History size={13} className="text-blue-500 shrink-0" aria-hidden="true" />
+              <History size={13} className="text-sky-500 shrink-0" aria-hidden="true" />
               <span className="whitespace-nowrap">
                 Campaign Timeline ({visibleSnapshots.length}{' '}
                 {visibleSnapshots.length === 1 ? 'Session' : 'Sessions'})
@@ -266,7 +424,7 @@ export default function TimelineBar({ diffStats }: TimelineBarProps) {
                 <button
                   type="button"
                   onClick={openCreateSnapshot}
-                  className="flex items-center gap-1 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap cursor-pointer"
+                  className="flex items-center gap-1 text-xs font-semibold text-sky-600 dark:text-sky-400 hover:underline whitespace-nowrap cursor-pointer"
                 >
                   <Plus size={12} /> Snapshot
                 </button>
@@ -274,7 +432,7 @@ export default function TimelineBar({ diffStats }: TimelineBarProps) {
             )}
           </div>
 
-          {expanded && (
+          {!hideInlineDrawer && expanded && (
             <div className="absolute bottom-full left-0 mb-2 z-30 bg-white/95 dark:bg-slate-800/95 backdrop-blur border border-slate-200 dark:border-slate-700 shadow-2xl rounded-xl px-3.5 py-2.5 flex flex-col gap-2 w-max max-w-[min(88dvw,760px)]">
               <div className="flex items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-1.5">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">

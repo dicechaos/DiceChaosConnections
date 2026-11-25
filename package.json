@@ -1,6 +1,6 @@
 {
   "name": "dice-chaos-connections",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Offline TTRPG campaign mind-map, conspiracy board, and spoiler-safe 2nd-screen live player display.",
   "main": "./out/main/index.js",
   "author": "Gus (https://dicechaos.com)",

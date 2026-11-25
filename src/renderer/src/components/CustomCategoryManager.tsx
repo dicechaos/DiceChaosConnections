@@ -136,7 +136,7 @@ export default function CustomCategoryManager({
 
       <div className="flex flex-col gap-1">
         <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Icon</span>
-        <div className="grid grid-cols-6 gap-1 bg-white dark:bg-slate-800 p-1.5 rounded border border-slate-200 dark:border-slate-700 max-h-24 overflow-y-auto">
+        <div className="dcc-scroll-y grid grid-cols-6 gap-1 bg-white dark:bg-[#0a1022] p-1.5 rounded border border-slate-200 dark:border-slate-700 max-h-24 overflow-y-auto">
           {Object.entries(availableIcons).map(([name, IconComp]) => (
             <button
               key={name}

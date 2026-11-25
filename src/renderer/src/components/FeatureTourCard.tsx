@@ -18,6 +18,7 @@ export interface FeatureTourCardProps {
   onClose: () => void
   triggerRef: React.RefObject<HTMLButtonElement | null>
   hasInspectorOpen: boolean
+  timelineExpanded?: boolean
   isHobbitStarter: boolean
   isPlayerEdition: boolean
   isPlayerView: boolean
@@ -37,6 +38,7 @@ export default function FeatureTourCard({
   onClose,
   triggerRef,
   hasInspectorOpen,
+  timelineExpanded = false,
   isHobbitStarter,
   isPlayerEdition,
   isPlayerView,
@@ -191,10 +193,10 @@ export default function FeatureTourCard({
         position: 'fixed',
         inset: 'auto',
         right: hasInspectorOpen ? '23.25rem' : '1.25rem',
-        bottom: '3.5rem',
+        bottom: timelineExpanded ? '8.5rem' : '3rem',
         margin: 0
       }}
-      className={`no-export z-40 w-[22.5rem] max-w-[calc(100vw-2.5rem)] rounded-xl border border-indigo-200/90 dark:border-indigo-500/40 bg-white/95 dark:bg-slate-900/95 text-slate-800 dark:text-slate-100 shadow-2xl backdrop-blur-md p-0 transition-[right] duration-200 ${
+      className={`no-export z-40 w-[22.5rem] max-w-[calc(100vw-2.5rem)] rounded-xl border border-indigo-200/90 dark:border-indigo-500/40 dcc-surface-panel shadow-2xl backdrop-blur-md p-0 transition-[right,bottom] duration-200 ${
         !open ? 'hidden' : 'block'
       }`}
     >

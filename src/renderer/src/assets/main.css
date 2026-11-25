@@ -4,24 +4,93 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
+  /* Dice Chaos Tabletop Suite — Daylight Light & Midnight-Sapphire Dark Chrome Tokens */
+  --dcc-void-light: #eef3fa;
+  --dcc-void-dark: #090d1a;
+  --dcc-chrome-light: #f8fbff;
+  --dcc-chrome-dark: #0f162b;
+  --dcc-panel-light: #ffffff;
+  --dcc-panel-dark: #111932;
+  --dcc-elevated-light: #f1f5fb;
+  --dcc-elevated-dark: #172342;
+  --dcc-hover-light: #e6eef9;
+  --dcc-hover-dark: #1f2e54;
+  --dcc-input-light: #ffffff;
+  --dcc-input-dark: #0a1022;
+  --dcc-border-light: rgba(15, 23, 42, 0.13);
+  --dcc-border-dark: rgba(148, 163, 184, 0.18);
+  --dcc-border-strong-light: rgba(15, 23, 42, 0.24);
+  --dcc-border-strong-dark: rgba(148, 163, 184, 0.32);
+  --dcc-text-primary-light: #0f172a;
+  --dcc-text-primary-dark: #f8fafc;
+  --dcc-text-secondary-light: #475569;
+  --dcc-text-secondary-dark: #b6c4dc;
+  --dcc-text-muted-light: #64748b;
+  --dcc-text-muted-dark: #8c9ebc;
+  --dcc-accent-light: #0284c7;
+  --dcc-accent-dark: #38bdf8;
+  --dcc-focus-ring-light: #0284c7;
+  --dcc-focus-ring-dark: #38bdf8;
+
   --scrollbar-track-light: #f1f5f9;
-  --scrollbar-track-dark: #1e293b;
-  --scrollbar-thumb-light: #64748b;
-  --scrollbar-thumb-dark: #94a3b8;
+  --scrollbar-track-dark: #0b1122;
+  --scrollbar-thumb-light: #94a3b8;
+  --scrollbar-thumb-dark: #3b4d70;
+
+  --dcc-void: var(--dcc-void-light);
+  --dcc-chrome: var(--dcc-chrome-light);
+  --dcc-panel: var(--dcc-panel-light);
+  --dcc-elevated: var(--dcc-elevated-light);
+  --dcc-hover: var(--dcc-hover-light);
+  --dcc-input: var(--dcc-input-light);
+  --dcc-border: var(--dcc-border-light);
+  --dcc-border-strong: var(--dcc-border-strong-light);
+  --dcc-text-primary: var(--dcc-text-primary-light);
+  --dcc-text-secondary: var(--dcc-text-secondary-light);
+  --dcc-text-muted: var(--dcc-text-muted-light);
+  --dcc-accent: var(--dcc-accent-light);
+  --dcc-focus-ring: var(--dcc-focus-ring-light);
   --scrollbar-track: var(--scrollbar-track-light);
   --scrollbar-thumb: var(--scrollbar-thumb-light);
 
   @media (prefers-color-scheme: dark) {
+    --dcc-void: var(--dcc-void-dark);
+    --dcc-chrome: var(--dcc-chrome-dark);
+    --dcc-panel: var(--dcc-panel-dark);
+    --dcc-elevated: var(--dcc-elevated-dark);
+    --dcc-hover: var(--dcc-hover-dark);
+    --dcc-input: var(--dcc-input-dark);
+    --dcc-border: var(--dcc-border-dark);
+    --dcc-border-strong: var(--dcc-border-strong-dark);
+    --dcc-text-primary: var(--dcc-text-primary-dark);
+    --dcc-text-secondary: var(--dcc-text-secondary-dark);
+    --dcc-text-muted: var(--dcc-text-muted-dark);
+    --dcc-accent: var(--dcc-accent-dark);
+    --dcc-focus-ring: var(--dcc-focus-ring-dark);
     --scrollbar-track: var(--scrollbar-track-dark);
     --scrollbar-thumb: var(--scrollbar-thumb-dark);
   }
 
   @supports (color: light-dark(white, black)) {
+    --dcc-void: light-dark(var(--dcc-void-light), var(--dcc-void-dark));
+    --dcc-chrome: light-dark(var(--dcc-chrome-light), var(--dcc-chrome-dark));
+    --dcc-panel: light-dark(var(--dcc-panel-light), var(--dcc-panel-dark));
+    --dcc-elevated: light-dark(var(--dcc-elevated-light), var(--dcc-elevated-dark));
+    --dcc-hover: light-dark(var(--dcc-hover-light), var(--dcc-hover-dark));
+    --dcc-input: light-dark(var(--dcc-input-light), var(--dcc-input-dark));
+    --dcc-border: light-dark(var(--dcc-border-light), var(--dcc-border-dark));
+    --dcc-border-strong: light-dark(var(--dcc-border-strong-light), var(--dcc-border-strong-dark));
+    --dcc-text-primary: light-dark(var(--dcc-text-primary-light), var(--dcc-text-primary-dark));
+    --dcc-text-secondary: light-dark(var(--dcc-text-secondary-light), var(--dcc-text-secondary-dark));
+    --dcc-text-muted: light-dark(var(--dcc-text-muted-light), var(--dcc-text-muted-dark));
+    --dcc-accent: light-dark(var(--dcc-accent-light), var(--dcc-accent-dark));
+    --dcc-focus-ring: light-dark(var(--dcc-focus-ring-light), var(--dcc-focus-ring-dark));
     --scrollbar-track: light-dark(var(--scrollbar-track-light), var(--scrollbar-track-dark));
     --scrollbar-thumb: light-dark(var(--scrollbar-thumb-light), var(--scrollbar-thumb-dark));
   }
 
   color-scheme: light dark;
+  accent-color: var(--dcc-accent);
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 
@@ -33,17 +102,216 @@
   }
 }
 
+html.dark {
+  color-scheme: dark;
+  --dcc-void: var(--dcc-void-dark);
+  --dcc-chrome: var(--dcc-chrome-dark);
+  --dcc-panel: var(--dcc-panel-dark);
+  --dcc-elevated: var(--dcc-elevated-dark);
+  --dcc-hover: var(--dcc-hover-dark);
+  --dcc-input: var(--dcc-input-dark);
+  --dcc-border: var(--dcc-border-dark);
+  --dcc-border-strong: var(--dcc-border-strong-dark);
+  --dcc-text-primary: var(--dcc-text-primary-dark);
+  --dcc-text-secondary: var(--dcc-text-secondary-dark);
+  --dcc-text-muted: var(--dcc-text-muted-dark);
+  --dcc-accent: var(--dcc-accent-dark);
+  --dcc-focus-ring: var(--dcc-focus-ring-dark);
+  --scrollbar-track: var(--scrollbar-track-dark);
+  --scrollbar-thumb: var(--scrollbar-thumb-dark);
+}
+
+html:not(.dark) {
+  color-scheme: light;
+}
+
+/* Suite chrome surface utilities */
+.dcc-chrome-bar {
+  background-color: var(--dcc-chrome);
+  border-color: var(--dcc-border);
+  color: var(--dcc-text-primary);
+}
+
+.dcc-surface-panel {
+  background-color: var(--dcc-panel);
+  border-color: var(--dcc-border);
+  color: var(--dcc-text-primary);
+}
+
+.dcc-surface-elevated {
+  background-color: var(--dcc-elevated);
+  border-color: var(--dcc-border);
+}
+
+.dcc-surface-input {
+  background-color: var(--dcc-input);
+  border-color: var(--dcc-border-strong);
+  color: var(--dcc-text-primary);
+}
+
+/* Accessible focus rings & subtle tactile press feedback (natural-interactions) */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--dcc-focus-ring);
+  outline-offset: 2px;
+}
+
+@layer base {
+  @media (prefers-reduced-motion: no-preference) {
+    :where(button:not(.react-flow__handle):not(.edge-anchor-handle):not(.edge-endpoint-handle):not([aria-disabled="true"]):not(:disabled)) {
+      transition: scale 110ms ease-out, background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+    }
+    :where(button:not(.react-flow__handle):not(.edge-anchor-handle):not(.edge-endpoint-handle):not([aria-disabled="true"]):not(:disabled)):active {
+      scale: 0.98;
+    }
+  }
+}
+
+/* Sleek thin scrollbars across all studio panels & top-layer dialogs */
+.dcc-scroll-y,
+dialog,
+dialog * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
 @supports not (scrollbar-color: auto) {
+  :root,
+  .dcc-scroll-y,
+  dialog,
+  dialog * {
+    scrollbar-width: auto;
+  }
   *::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 7px;
+    height: 7px;
   }
   *::-webkit-scrollbar-thumb {
     background: var(--scrollbar-thumb);
-    border-radius: 4px;
+    border-radius: 9999px;
   }
   *::-webkit-scrollbar-track {
-    background: var(--scrollbar-track);
+    background: transparent;
+  }
+}
+
+/* Pure-CSS vertical scrollability shadow hints (scroll-state with scroll-driven fallback) */
+.dcc-scroll-shadow {
+  container-type: scroll-state;
+}
+
+.dcc-scroll-shadow::before,
+.dcc-scroll-shadow::after {
+  content: "";
+  display: block;
+  position: sticky;
+  block-size: 0.75rem;
+  z-index: 4;
+  pointer-events: none;
+  opacity: 0;
+  flex-shrink: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dcc-scroll-shadow::before,
+  .dcc-scroll-shadow::after {
+    transition: opacity 180ms ease;
+  }
+}
+
+.dcc-scroll-shadow::before {
+  inset-block-start: 0;
+  margin-block-end: -0.75rem;
+  background: radial-gradient(farthest-side at 50% 0, rgba(2, 6, 23, 0.22), transparent);
+}
+
+.dcc-scroll-shadow::after {
+  inset-block-end: 0;
+  margin-block-start: -0.75rem;
+  background: radial-gradient(farthest-side at 50% 100%, rgba(2, 6, 23, 0.22), transparent);
+}
+
+html.dark .dcc-scroll-shadow::before {
+  background: radial-gradient(farthest-side at 50% 0, rgba(2, 6, 23, 0.55), transparent);
+}
+
+html.dark .dcc-scroll-shadow::after {
+  background: radial-gradient(farthest-side at 50% 100%, rgba(2, 6, 23, 0.55), transparent);
+}
+
+@container scroll-state(scrollable: block-start) {
+  .dcc-scroll-shadow::before {
+    opacity: 1;
+  }
+}
+
+@container scroll-state(scrollable: block-end) {
+  .dcc-scroll-shadow::after {
+    opacity: 1;
+  }
+}
+
+@supports not (container-type: scroll-state) {
+  .dcc-scroll-shadow::before,
+  .dcc-scroll-shadow::after {
+    animation: dcc-show-scroll-shadow linear both;
+    animation-timeline: scroll();
+  }
+  .dcc-scroll-shadow::before {
+    animation-range: 0 1.5rem;
+  }
+  .dcc-scroll-shadow::after {
+    animation-direction: reverse;
+    animation-range: calc(100% - 1.5rem) 100%;
+  }
+}
+
+@keyframes dcc-show-scroll-shadow {
+  to {
+    opacity: 1;
+  }
+}
+
+/* Pure-CSS horizontal scroll fade hints (zero chunky native scrollbar on chip/view/timeline strips) */
+@property --fade-start {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --fade-end {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+.dcc-scroll-fade-x {
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: 1.5rem;
+  --fade-size: 1.75rem;
+  mask:
+    linear-gradient(black, black) no-clip subtract,
+    linear-gradient(to right, black, transparent) 0 0 / var(--fade-start) 100% no-repeat no-clip,
+    linear-gradient(to right, transparent, black) 100% 0 / var(--fade-end) 100% no-repeat no-clip;
+  animation: dcc-reveal-fade-start linear both, dcc-hide-fade-end linear both;
+  animation-timeline: scroll(self inline);
+  animation-range: 0 var(--fade-size), calc(100% - var(--fade-size)) 100%;
+}
+
+.dcc-scroll-fade-x::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes dcc-reveal-fade-start {
+  to {
+    --fade-start: var(--fade-size);
+  }
+}
+
+@keyframes dcc-hide-fade-end {
+  from {
+    --fade-end: var(--fade-size);
   }
 }
 
@@ -53,15 +321,12 @@ html, body, #root {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background-color: #f8fafc;
+  background-color: var(--dcc-void);
+  color: var(--dcc-text-primary);
   font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
-html.dark body, html.dark #root {
-  background-color: #0f172a;
-}
-
-/* Native modal dialog best practices (prevent background scroll chaining; never force display on closed dialog) */
+/* Native modal dialog best practices + smooth compositor entry/exit */
 dialog:modal {
   overscroll-behavior: contain;
 }
@@ -69,19 +334,52 @@ dialog:modal {
 dialog::backdrop {
   overflow: hidden;
   overscroll-behavior: contain;
-  background: rgba(15, 23, 42, 0.55);
-  backdrop-filter: blur(3px);
+  background: rgba(6, 10, 24, 0.62);
+  backdrop-filter: blur(4px);
 }
 
-/* Top-layer popup context menu: CSS Anchor Positioning with JS viewport-clamped fallback */
-.context-menu-popover[popover] {
+@media (prefers-reduced-motion: no-preference) {
+  dialog:modal {
+    opacity: 0;
+    translate: 0 6px;
+    scale: 0.985;
+    transition: opacity 140ms ease-out, translate 140ms ease-out, scale 140ms ease-out, display 140ms ease-out, overlay 140ms ease-out;
+    transition-behavior: allow-discrete;
+  }
+  dialog[open]:modal {
+    opacity: 1;
+    translate: 0 0;
+    scale: 1;
+    @starting-style {
+      opacity: 0;
+      translate: 0 6px;
+      scale: 0.985;
+    }
+  }
+  dialog::backdrop {
+    opacity: 0;
+    transition: opacity 140ms ease-out, display 140ms ease-out, overlay 140ms ease-out;
+    transition-behavior: allow-discrete;
+  }
+  dialog[open]::backdrop {
+    opacity: 1;
+    @starting-style {
+      opacity: 0;
+    }
+  }
+}
+
+/* Top-layer popup context & toolbar menus: CSS Anchor Positioning + compositor entry/exit */
+.context-menu-popover[popover],
+.dcc-menu-popover[popover] {
   max-height: calc(100dvh - 16px);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 
 @supports (position-area: block-end) {
-  .context-menu-popover[popover]:has(> [focusgroup~="menu"]) {
+  .context-menu-popover[popover]:has(> [focusgroup~="menu"]),
+  .dcc-menu-popover[popover]:has(> [focusgroup~="menu"]) {
     position-area: block-end span-inline-end;
     position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
     inset: auto;
@@ -90,10 +388,31 @@ dialog::backdrop {
 }
 
 @supports not (position-area: block-end) {
-  .context-menu-popover[popover] {
+  .context-menu-popover[popover],
+  .dcc-menu-popover[popover] {
     position: fixed;
     inset: auto;
     margin: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .context-menu-popover[popover]:has(> [focusgroup~="menu"]),
+  .dcc-menu-popover[popover]:has(> [focusgroup~="menu"]) {
+    opacity: 0;
+    translate: 0 -0.25rem;
+    transition: opacity 130ms ease-out, translate 130ms ease-out, display 130ms ease-out, overlay 130ms ease-out;
+    transition-behavior: allow-discrete;
+  }
+  .context-menu-popover[popover]:has(> [focusgroup~="menu"]):popover-open,
+  .dcc-menu-popover[popover]:has(> [focusgroup~="menu"]):popover-open {
+    opacity: 1;
+    translate: 0 0;
+    transition-duration: 100ms;
+    @starting-style {
+      opacity: 0;
+      translate: 0 -0.25rem;
+    }
   }
 }
 
@@ -129,28 +448,33 @@ html.dark .canvas-theme-modern {
 }
 
 /* Theme React Flow built-in zoom controls in dark mode / dark themes */
+.react-flow__controls {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--dcc-border);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.14);
+}
+
 html.dark .react-flow__controls,
 .canvas-theme-arcane .react-flow__controls,
 .canvas-theme-corkboard .react-flow__controls {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  border: 1px solid #334155;
-  border-radius: 6px;
-  overflow: hidden;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--dcc-border-dark);
 }
 
 html.dark .react-flow__controls-button,
 .canvas-theme-arcane .react-flow__controls-button,
 .canvas-theme-corkboard .react-flow__controls-button {
-  background: #1e293b;
+  background: var(--dcc-chrome-dark);
   color: #e2e8f0;
   fill: #e2e8f0;
-  border-bottom: 1px solid #334155;
+  border-bottom: 1px solid var(--dcc-border-dark);
 }
 
 html.dark .react-flow__controls-button:hover,
 .canvas-theme-arcane .react-flow__controls-button:hover,
 .canvas-theme-corkboard .react-flow__controls-button:hover {
-  background: #334155;
+  background: var(--dcc-hover-dark);
 }
 
 /* Clip inner MiniMap SVG mask strictly to rounded card corners without creating a scroll container */
@@ -247,9 +571,11 @@ html.dark .share-tab[aria-selected="true"] {
 }
 .share-tabpanels {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
 }
 .share-tabpanels > [role="tabpanel"] {
   grid-area: 1 / 1;
+  min-width: 0;
 }
 
 /* Full-surface connection routing anchor handle rendered inside <ViewportPortal> */
@@ -437,7 +763,10 @@ html.dark .share-tab[aria-selected="true"] {
   forced-color-adjust: none;
 }
 
-/* Accessible native <details> disclosure panels (find-in-page friendly, progressive-enhancement slide) */
+/* Accessible native <details> disclosure panels (find-in-page friendly, unclipped open content) */
+details.dcc-disclosure {
+  flex-shrink: 0;
+}
 details.dcc-disclosure > summary {
   list-style: none;
   display: flex;
@@ -462,14 +791,17 @@ details.dcc-disclosure[open] > summary .dcc-disclosure-chevron {
 details.dcc-disclosure::details-content {
   interpolate-size: allow-keywords;
   overflow: clip;
-  contain: layout;
 }
 details.dcc-disclosure:not([open])::details-content {
   block-size: 0;
 }
+details.dcc-disclosure[open]::details-content {
+  block-size: auto;
+  overflow: visible;
+}
 @media (prefers-reduced-motion: no-preference) {
   details.dcc-disclosure::details-content {
-    transition: block-size 0.22s ease-in-out, content-visibility 0.22s ease-in-out, display 0.22s ease-in-out;
+    transition: block-size 0.2s ease-in-out, content-visibility 0.2s ease-in-out, display 0.2s ease-in-out;
     transition-behavior: allow-discrete;
   }
 }
@@ -581,7 +913,8 @@ details.dcc-disclosure:not([open])::details-content {
 
 /* ==================== AUTO-SAVE TOGGLE BUTTON (Phase 27) ==================== */
 .dcc-autosave-toggle {
-  min-inline-size: 1.5rem;
+  flex-shrink: 0;
+  min-inline-size: max-content;
   min-block-size: 1.5rem;
   border: 1px solid rgba(148, 163, 184, 0.45);
   background-color: rgba(241, 245, 249, 0.9);
@@ -612,6 +945,7 @@ details.dcc-disclosure:not([open])::details-content {
 }
 
 .dcc-autosave-track {
+  flex-shrink: 0;
   inline-size: 1.5rem;
   block-size: 0.875rem;
   border-radius: 9999px;

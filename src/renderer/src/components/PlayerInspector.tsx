@@ -145,10 +145,10 @@ export default function PlayerInspector({
     const dmText = !isPlayerView ? data.dmNotes || '' : ''
 
     return (
-      <aside className="no-export absolute right-0 top-0 h-full w-84 bg-white dark:bg-slate-800 shadow-2xl border-l border-slate-200 dark:border-slate-700 z-20 flex flex-col pointer-events-auto">
-        <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900">
+      <aside className="no-export h-full w-[336px] shrink-0 dcc-surface-panel shadow-xl border-l z-20 flex flex-col pointer-events-auto">
+        <div className="px-4 py-3 border-b border-slate-200/80 dark:border-slate-700/60 flex justify-between items-center dcc-chrome-bar shrink-0">
           <div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-600 dark:text-sky-400">
               {isSnapshotPreview ? 'Snapshot Connection' : 'Relationship'}
             </span>
             <h2 className="font-bold text-base text-slate-800 dark:text-slate-100">
@@ -159,13 +159,13 @@ export default function PlayerInspector({
             type="button"
             aria-label="Close inspector"
             onClick={onClose}
-            className="p-1 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+            className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-[#1f2e54] cursor-pointer"
           >
             <X size={18} />
           </button>
         </div>
 
-        <div className="p-4 flex flex-col gap-4 overflow-y-auto overscroll-contain [scrollbar-gutter:stable] min-h-0 flex-1 [&>*]:shrink-0">
+        <div className="dcc-scroll-y dcc-scroll-shadow p-4 flex flex-col gap-4 overflow-y-auto overscroll-contain [scrollbar-gutter:stable] min-h-0 flex-1 [&>*]:shrink-0">
           <DiffBreakdownCard
             diffStatus={data.diffStatus}
             diffEntries={diffEntries}
@@ -321,10 +321,10 @@ export default function PlayerInspector({
   if (f.sessionDate) detailChips.push({ label: 'Session', value: f.sessionDate })
 
   return (
-    <aside className="no-export absolute right-0 top-0 h-full w-84 bg-white dark:bg-slate-800 shadow-2xl border-l border-slate-200 dark:border-slate-700 z-20 flex flex-col pointer-events-auto">
-      <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-start bg-slate-50 dark:bg-slate-900">
+    <aside className="no-export h-full w-[336px] shrink-0 dcc-surface-panel shadow-xl border-l z-20 flex flex-col pointer-events-auto">
+      <div className="px-4 py-3 border-b border-slate-200/80 dark:border-slate-700/60 flex justify-between items-start dcc-chrome-bar shrink-0">
         <div className="min-w-0 pr-2">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-sky-600 dark:text-sky-400">
             {node.type === 'groupRegion' || data.isGroup ? 'Group / Region' : data.entityType}
             {isSnapshotPreview ? ' • Snapshot View' : ''}
           </span>
@@ -345,14 +345,14 @@ export default function PlayerInspector({
         <button
           type="button"
           aria-label="Close inspector"
-          className="p-1 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 shrink-0 cursor-pointer"
+          className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-[#1f2e54] shrink-0 cursor-pointer"
           onClick={onClose}
         >
           <X size={18} />
         </button>
       </div>
 
-      <div className="p-4 flex flex-col gap-4 overflow-y-auto overscroll-contain [scrollbar-gutter:stable] min-h-0 flex-1 [&>*]:shrink-0">
+      <div className="dcc-scroll-y dcc-scroll-shadow p-4 flex flex-col gap-4 overflow-y-auto overscroll-contain [scrollbar-gutter:stable] min-h-0 flex-1 [&>*]:shrink-0">
         <DiffBreakdownCard
           diffStatus={data.diffStatus}
           diffEntries={diffEntries}

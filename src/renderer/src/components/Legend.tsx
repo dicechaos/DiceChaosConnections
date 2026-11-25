@@ -156,11 +156,12 @@ export default function Legend() {
   const hasOtherEdges = (edgeCounts[OTHER_EDGE_FILTER_KEY] || 0) > 0
   const showGroupsRow = groupCount > 0 || visibleTypes['Group'] === false
 
-  const hasHiddenFilter =
-    items.some((i) => visibleTypes[i.type] === false) ||
-    visibleTypes['Group'] === false ||
-    connectionPresets.some((p) => visibleEdgeTypes[p.label] === false) ||
-    visibleEdgeTypes[OTHER_EDGE_FILTER_KEY] === false
+  const hiddenFilterCount =
+    items.filter((i) => visibleTypes[i.type] === false).length +
+    (visibleTypes['Group'] === false ? 1 : 0) +
+    connectionPresets.filter((p) => visibleEdgeTypes[p.label] === false).length +
+    (visibleEdgeTypes[OTHER_EDGE_FILTER_KEY] === false ? 1 : 0)
+  const hasHiddenFilter = hiddenFilterCount > 0
 
   const allEntitiesChecked = items.every((i) => visibleTypes[i.type] !== false)
   const allEdgesChecked =
@@ -168,21 +169,27 @@ export default function Legend() {
     (!hasOtherEdges || visibleEdgeTypes[OTHER_EDGE_FILTER_KEY] !== false)
 
   return (
-    <div className="bg-white/95 dark:bg-slate-800/95 backdrop-blur shadow-lg rounded-lg border border-slate-200 dark:border-slate-700 min-w-[225px] overflow-hidden overflow-clip min-h-0 flex flex-col max-h-full">
-      <div className="shrink-0 flex items-center justify-between px-3 py-2 border-b border-slate-200/80 dark:border-slate-700/80 bg-slate-50/70 dark:bg-slate-900/50">
+    <div className="dcc-surface-panel backdrop-blur-md shadow-lg rounded-xl border min-w-[214px] max-w-[238px] overflow-hidden overflow-clip min-h-0 flex flex-col max-h-full">
+      <div className="shrink-0 flex items-center justify-between gap-2 px-2.5 py-1.5 border-b border-slate-200/80 dark:border-slate-700/60 bg-slate-50/75 dark:bg-[#0c1326]/75">
         <button
           type="button"
+          aria-expanded={!collapsed}
           onClick={() => setCollapsed(!collapsed)}
-          className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider hover:text-slate-950 dark:hover:text-white cursor-pointer"
+          className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider hover:text-slate-950 dark:hover:text-white cursor-pointer"
         >
-          {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-          <span>Legend & Filters</span>
+          {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+          <span>Legend &amp; Filters</span>
+          {collapsed && hasHiddenFilter && (
+            <span className="px-1.5 py-0.2 rounded-full bg-sky-500/20 text-sky-700 dark:text-sky-300 text-[9px] font-bold normal-case tracking-normal">
+              {hiddenFilterCount} hidden
+            </span>
+          )}
         </button>
         {hasHiddenFilter && (
           <button
             type="button"
             onClick={() => setAllTypesVisibility(true)}
-            className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+            className="text-[10px] font-bold text-sky-600 dark:text-sky-400 hover:underline cursor-pointer shrink-0"
           >
             Reset
           </button>
@@ -190,31 +197,31 @@ export default function Legend() {
       </div>
 
       {!collapsed && (
-        <div className="p-3 overflow-y-auto overscroll-contain [scrollbar-gutter:stable] min-h-0 flex-1">
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+        <div className="dcc-scroll-y dcc-scroll-shadow px-2.5 py-2 overflow-y-auto overscroll-contain [scrollbar-gutter:stable] min-h-0 flex-1">
+          <div className="flex items-center justify-between mb-1.5">
+            <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
               Entities
             </h4>
             <button
               type="button"
               onClick={() => setAllEntityVisibility(!allEntitiesChecked)}
-              className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+              className="text-[10px] font-semibold text-sky-600 dark:text-sky-400 hover:underline cursor-pointer"
             >
               {allEntitiesChecked ? 'Hide All' : 'Show All'}
             </button>
           </div>
 
-          <div className="flex flex-col gap-2 mb-3.5">
+          <div className="flex flex-col gap-1.5 mb-2.5">
             {items.map((item) => {
               const count = entityCounts[item.type] || 0
               return (
                 <label
                   key={item.type}
-                  className="flex items-center justify-between gap-2.5 cursor-pointer group"
+                  className="flex items-center justify-between gap-2 cursor-pointer group py-0.2"
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <div
-                      className={`w-6 h-6 rounded border-2 flex items-center justify-center shrink-0 ${
+                      className={`w-5 h-5 rounded border-[1.75px] flex items-center justify-center shrink-0 ${
                         !item.isCustom ? item.color : ''
                       }`}
                       style={
@@ -232,9 +239,9 @@ export default function Legend() {
                           : {}
                       }
                     >
-                      <item.Icon size={12} strokeWidth={2.25} />
+                      <item.Icon size={11} strokeWidth={2.25} />
                     </div>
-                    <span className="text-xs font-medium text-slate-700 dark:text-slate-200 select-none group-hover:text-slate-950 dark:group-hover:text-white truncate">
+                    <span className="text-[11.5px] font-medium text-slate-700 dark:text-slate-200 select-none group-hover:text-slate-950 dark:group-hover:text-white truncate">
                       {item.label}
                     </span>
                   </div>
@@ -246,7 +253,7 @@ export default function Legend() {
                     )}
                     <input
                       type="checkbox"
-                      className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer w-3.5 h-3.5 accent-blue-600 shrink-0"
+                      className="rounded text-sky-600 cursor-pointer w-3.5 h-3.5 shrink-0"
                       checked={visibleTypes[item.type] !== false}
                       onChange={() => toggleTypeVisibility(item.type)}
                     />
@@ -258,13 +265,13 @@ export default function Legend() {
             {showGroupsRow && (
               <label
                 title="Show or hide group boundary frames (entities inside groups stay visible)"
-                className="flex items-center justify-between gap-2.5 pt-1.5 mt-0.5 border-t border-slate-200/70 dark:border-slate-700/70 cursor-pointer group"
+                className="flex items-center justify-between gap-2 pt-1.5 mt-0.5 border-t border-slate-200/70 dark:border-slate-700/60 cursor-pointer group"
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-6 h-6 rounded border-2 border-dashed border-amber-600 bg-amber-50 text-amber-800 dark:bg-amber-950/70 dark:border-amber-400 dark:text-amber-200 flex items-center justify-center shrink-0">
-                    <FolderKanban size={12} strokeWidth={2.25} />
+                  <div className="w-5 h-5 rounded border-[1.75px] border-dashed border-amber-600 bg-amber-50 text-amber-800 dark:bg-amber-950/70 dark:border-amber-400 dark:text-amber-200 flex items-center justify-center shrink-0">
+                    <FolderKanban size={11} strokeWidth={2.25} />
                   </div>
-                  <span className="text-xs font-medium text-slate-700 dark:text-slate-200 select-none group-hover:text-slate-950 dark:group-hover:text-white truncate">
+                  <span className="text-[11.5px] font-medium text-slate-700 dark:text-slate-200 select-none group-hover:text-slate-950 dark:group-hover:text-white truncate">
                     Groups / Regions
                   </span>
                 </div>
@@ -276,7 +283,7 @@ export default function Legend() {
                   )}
                   <input
                     type="checkbox"
-                    className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer w-3.5 h-3.5 accent-blue-600 shrink-0"
+                    className="rounded text-sky-600 cursor-pointer w-3.5 h-3.5 shrink-0"
                     checked={visibleTypes['Group'] !== false}
                     onChange={() => toggleTypeVisibility('Group')}
                   />
@@ -287,20 +294,20 @@ export default function Legend() {
 
           {(connectionPresets.length > 0 || hasOtherEdges) && (
             <>
-              <div className="flex items-center justify-between mb-2 pt-2 border-t border-slate-200 dark:border-slate-700">
-                <h4 className="text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+              <div className="flex items-center justify-between mb-1.5 pt-2 border-t border-slate-200/80 dark:border-slate-700/60">
+                <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                   Connections
                 </h4>
                 <button
                   type="button"
                   onClick={() => setAllEdgeVisibility(!allEdgesChecked)}
-                  className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                  className="text-[10px] font-semibold text-sky-600 dark:text-sky-400 hover:underline cursor-pointer"
                 >
                   {allEdgesChecked ? 'Hide All' : 'Show All'}
                 </button>
               </div>
 
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
                 {connectionPresets.map((preset) => {
                   const dirSymbol =
                     preset.direction === 'forward'
@@ -314,10 +321,10 @@ export default function Legend() {
                   return (
                     <label
                       key={preset.label}
-                      className="flex items-center justify-between gap-2.5 cursor-pointer group"
+                      className="flex items-center justify-between gap-2 cursor-pointer group"
                     >
                       <div className="flex items-center gap-2 min-w-0">
-                        <div className="w-7 h-5 rounded bg-slate-100/80 dark:bg-slate-900/70 px-1 flex items-center justify-center shrink-0">
+                        <div className="w-6 h-4 rounded bg-slate-100/80 dark:bg-[#0a1022]/80 px-1 flex items-center justify-center shrink-0">
                           <div
                             className="w-full"
                             style={{
@@ -330,10 +337,10 @@ export default function Legend() {
                             }}
                           />
                         </div>
-                        <span className="text-xs font-medium text-slate-700 dark:text-slate-200 select-none group-hover:text-slate-950 dark:group-hover:text-white truncate">
+                        <span className="text-[11.5px] font-medium text-slate-700 dark:text-slate-200 select-none group-hover:text-slate-950 dark:group-hover:text-white truncate">
                           {preset.label}
                           {dirSymbol && (
-                            <span className="ml-1 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                            <span className="ml-1 text-[10px] font-bold text-slate-500 dark:text-slate-300">
                               {dirSymbol}
                             </span>
                           )}
@@ -347,7 +354,7 @@ export default function Legend() {
                         )}
                         <input
                           type="checkbox"
-                          className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer w-3.5 h-3.5 accent-blue-600 shrink-0"
+                          className="rounded text-sky-600 cursor-pointer w-3.5 h-3.5 shrink-0"
                           checked={visibleEdgeTypes[preset.label] !== false}
                           onChange={() => toggleEdgeTypeVisibility(preset.label)}
                         />
@@ -357,9 +364,9 @@ export default function Legend() {
                 })}
 
                 {hasOtherEdges && (
-                  <label className="flex items-center justify-between gap-2.5 cursor-pointer group">
+                  <label className="flex items-center justify-between gap-2 cursor-pointer group">
                     <div className="flex items-center gap-2 min-w-0">
-                      <div className="w-7 h-5 rounded bg-slate-100/80 dark:bg-slate-900/70 px-1 flex items-center justify-center shrink-0">
+                      <div className="w-6 h-4 rounded bg-slate-100/80 dark:bg-[#0a1022]/80 px-1 flex items-center justify-center shrink-0">
                         <div
                           className="w-full"
                           style={{
@@ -369,7 +376,7 @@ export default function Legend() {
                           }}
                         />
                       </div>
-                      <span className="text-xs font-medium text-slate-700 dark:text-slate-200 select-none group-hover:text-slate-950 dark:group-hover:text-white truncate">
+                      <span className="text-[11.5px] font-medium text-slate-700 dark:text-slate-200 select-none group-hover:text-slate-950 dark:group-hover:text-white truncate">
                         Other / Custom
                       </span>
                     </div>
@@ -379,7 +386,7 @@ export default function Legend() {
                       </span>
                       <input
                         type="checkbox"
-                        className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer w-3.5 h-3.5 accent-blue-600 shrink-0"
+                        className="rounded text-sky-600 cursor-pointer w-3.5 h-3.5 shrink-0"
                         checked={visibleEdgeTypes[OTHER_EDGE_FILTER_KEY] !== false}
                         onChange={() => toggleEdgeTypeVisibility(OTHER_EDGE_FILTER_KEY)}
                       />
